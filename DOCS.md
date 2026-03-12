@@ -166,6 +166,41 @@ engram help               Show help
 
 ---
 
+## Running as a Service
+
+### Using systemd
+
+First you need add your engram binary to use in a global way. By example: `/usr/bin`, `/usr/local/bin` or `~/.local/bin`.
+In this documentation we will use `~/.local/bin`.
+
+1. First, move binary to `~/.local/bin` (Check if this is in your $PATH variable).
+2. Create a directory for you service with user scope and engram data: `mkdir -p ~/.engram ~/.config/systemd/user`.
+3. Create your service file in the following path: `~/.config/systemd/user/engram.service`.
+4. Reload service list: `systemctl --user daemon-reload`.
+5. Enable your service: `systemctl --user enable engram`.
+6. Then start it: `systemctl --user start engram`.
+7. And finally check the logs: `journalctl --user -u engram -f`.
+
+The following code is an example of the `~/.config/systemd/user/engram.service` file:
+
+```shell
+[Unit]
+Description=Engram Memory Server
+After=network.target
+
+[Service]
+WorkingDirectory=%h
+ExecStart=%h/.local/bin/engram serve
+Restart=always
+RestartSec=3
+Environment=ENGRAM_DATA_DIR=%h/.engram
+
+[Install]
+WantedBy=default.target
+```
+
+---
+
 ## Terminal UI (TUI)
 
 Interactive Bubbletea-based terminal UI. Launch with `engram tui`.
