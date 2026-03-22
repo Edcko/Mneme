@@ -2407,3 +2407,65 @@ func TestInstallOpenCodeBakesENGRAMBIN(t *testing.T) {
 		}
 	})
 }
+
+// ─── Issue #116: Sub-agent session inflation fix ─────────────────────────────
+
+// TestPluginSubAgentFiltering verifies that the installed plugin source
+// contains the necessary logic to:
+//
+//	a) read session data from event.properties.info (not event.properties)
+//	b) suppress Task() sub-agent sessions via parentID or title suffix check
+//	c) track sub-agent IDs in subAgentSessions for cross-hook suppression
+func TestPluginSubAgentFiltering(t *testing.T) {
+	resetSetupSeams(t)
+	home := useTestHome(t)
+	runtimeGOOS = "linux"
+	osExecutable = func() (string, error) { return "/usr/local/bin/engram", nil }
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
+
+	if _, err := installOpenCode(); err != nil {
+		t.Fatalf("installOpenCode failed: %v", err)
+	}
+
+	pluginPath := filepath.Join(home, "xdg", "opencode", "plugins", "engram.ts")
+	raw, err := os.ReadFile(pluginPath)
+	if err != nil {
+		t.Fatalf("read installed plugin: %v", err)
+	}
+	content := string(raw)
+
+	// a) Session data must be read from event.properties.info
+	if !strings.Contains(content, `event.properties as any)?.info`) {
+		t.Fatalf("plugin must read session data from event.properties.info, got:\n%s", content)
+	}
+
+	// b) parentID check: sub-agents with a parentID must not register sessions
+	if !strings.Contains(content, `parentID`) {
+		t.Fatalf("plugin must check parentID to detect sub-agent sessions")
+	}
+
+	// b) title suffix check: secondary signal for sub-agent detection
+	if !strings.Contains(content, `subagent)`) {
+		t.Fatalf("plugin must check title suffix ' subagent)' as secondary sub-agent signal")
+	}
+
+	// b) isSubAgent gate: must guard ensureSession() call
+	if !strings.Contains(content, `isSubAgent`) {
+		t.Fatalf("plugin must use isSubAgent flag to gate ensureSession()")
+	}
+
+	// c) subAgentSessions set must exist for cross-hook suppression
+	if !strings.Contains(content, `subAgentSessions`) {
+		t.Fatalf("plugin must define subAgentSessions set for cross-hook suppression")
+	}
+
+	// Verify ensureSession itself guards against sub-agent sessions
+	if !strings.Contains(content, `subAgentSessions.has(sessionId)`) {
+		t.Fatalf("ensureSession must check subAgentSessions before registering")
+	}
+
+	// session.deleted must clean up subAgentSessions too
+	if !strings.Contains(content, `subAgentSessions.delete(sessionId)`) {
+		t.Fatalf("session.deleted handler must clean up subAgentSessions set")
+	}
+}
