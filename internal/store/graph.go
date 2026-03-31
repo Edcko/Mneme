@@ -386,15 +386,15 @@ func (s *Store) AddRelation(sourceID, targetID int64, relation string, observati
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Invalidate any existing active relation of the same type between the same pair.
+	// Invalidate all active outgoing relations of the same type from this source.
+	// Semantics: "Project now uses X" supersedes "Project used Y" for the same relation.
 	if _, err := tx.Exec(`
 		UPDATE relations
 		SET t_invalid = datetime('now')
-		WHERE source_id  = ?
-		  AND target_id  = ?
-		  AND relation   = ?
+		WHERE source_id = ?
+		  AND relation  = ?
 		  AND t_invalid IS NULL
-	`, sourceID, targetID, relation); err != nil {
+	`, sourceID, relation); err != nil {
 		return 0, fmt.Errorf("invalidate old relation: %w", err)
 	}
 
@@ -500,8 +500,14 @@ func (s *Store) GraphBFS(seedEntityID int64, maxDepth int, project string) (*Gra
 		return nil, fmt.Errorf("seed entity %d not found: %w", seedEntityID, err)
 	}
 
+	// Args order must match SQL placeholders exactly:
+	// 1. SELECT ?   → seedEntityID (anchor row)
+	// 2. ',' || ? || ','  → seedEntityID (initial path)
+	// 3. WHERE bfs.depth < ?  → maxDepth
+	// 4,5. project filters (if set)
+	// 6. WHERE b.entity_id != ?  → seedEntityID (exclude seed from results)
 	projectFilter := ""
-	args := []any{seedEntityID, maxDepth}
+	args := []any{seedEntityID, seedEntityID, maxDepth}
 	if project != "" {
 		projectFilter = "AND (src.project IS NULL OR src.project = ? OR tgt.project IS NULL OR tgt.project = ?)"
 		args = append(args, project, project)
@@ -538,7 +544,7 @@ func (s *Store) GraphBFS(seedEntityID int64, maxDepth int, project string) (*Gra
 		WHERE b.entity_id != ?
 		GROUP BY e.id
 		ORDER BY depth, e.name
-	`, append(args, seedEntityID, seedEntityID)...)
+	`, append(args, seedEntityID)...)
 	if err != nil {
 		return nil, fmt.Errorf("graph BFS: %w", err)
 	}
@@ -631,50 +637,12 @@ func (s *Store) RebuildCommunities(project string) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	projectFilter := "1=1"
-	args := []any{}
-	if project != "" {
-		projectFilter = "(ifnull(e.project,'') = ?)"
-		args = append(args, project)
-	}
-
-	// Find connected components via label propagation:
-	// each node propagates the minimum reachable entity ID as its component label.
-	rows, err := tx.Query(`
-		WITH RECURSIVE components(entity_id, component_id) AS (
-			SELECT e.id, e.id
-			FROM entities e
-			WHERE `+projectFilter+`
-			UNION
-			SELECT
-				CASE WHEN r.source_id = c.entity_id THEN r.target_id
-				     ELSE r.source_id END,
-				MIN(c.component_id)
-			FROM components c
-			JOIN relations r ON (r.source_id = c.entity_id OR r.target_id = c.entity_id)
-			WHERE r.t_invalid IS NULL
-		)
-		SELECT entity_id, MIN(component_id) as component_id
-		FROM components
-		GROUP BY entity_id
-		ORDER BY component_id, entity_id
-	`, args...)
+	// Load all entities and active edges for this project, then run
+	// union-find in Go. SQLite does not support aggregates in recursive CTEs,
+	// so this is more reliable than pure SQL label propagation.
+	components, err := s.connectedComponents(project)
 	if err != nil {
-		return fmt.Errorf("community detection query: %w", err)
-	}
-	defer rows.Close()
-
-	// Group entities by component_id.
-	components := make(map[int64][]int64) // component_id → []entity_id
-	for rows.Next() {
-		var entityID, componentID int64
-		if err := rows.Scan(&entityID, &componentID); err != nil {
-			return err
-		}
-		components[componentID] = append(components[componentID], entityID)
-	}
-	if err := rows.Err(); err != nil {
-		return err
+		return fmt.Errorf("community detection: %w", err)
 	}
 
 	// Clear existing communities for this project.
@@ -780,6 +748,93 @@ func (s *Store) GetCommunities(project string, limit int) ([]Community, error) {
 	}
 
 	return communities, nil
+}
+
+// connectedComponents runs union-find in Go over all entities and active
+// relations for a project. Returns a map of component_id → []entity_id.
+// Component IDs are the minimum entity ID in each component (arbitrary but stable).
+func (s *Store) connectedComponents(project string) (map[int64][]int64, error) {
+	// Load entity IDs.
+	entityFilter := "1=1"
+	eArgs := []any{}
+	if project != "" {
+		entityFilter = "ifnull(project,'') = ?"
+		eArgs = append(eArgs, project)
+	}
+	eRows, err := s.queryHook(s.db, `SELECT id FROM entities WHERE `+entityFilter, eArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer eRows.Close()
+
+	parent := make(map[int64]int64)
+	for eRows.Next() {
+		var id int64
+		if err := eRows.Scan(&id); err != nil {
+			return nil, err
+		}
+		parent[id] = id
+	}
+	if err := eRows.Err(); err != nil {
+		return nil, err
+	}
+
+	// union-find helpers.
+	var find func(int64) int64
+	find = func(x int64) int64 {
+		if parent[x] != x {
+			parent[x] = find(parent[x]) // path compression
+		}
+		return parent[x]
+	}
+	union := func(a, b int64) {
+		ra, rb := find(a), find(b)
+		if ra == rb {
+			return
+		}
+		if ra < rb {
+			parent[rb] = ra
+		} else {
+			parent[ra] = rb
+		}
+	}
+
+	// Load active edges.
+	rFilter := "r.t_invalid IS NULL"
+	rArgs := []any{}
+	if project != "" {
+		rFilter += " AND (ifnull(src.project,'') = ? OR ifnull(tgt.project,'') = ?)"
+		rArgs = append(rArgs, project, project)
+	}
+	rRows, err := s.queryHook(s.db, `
+		SELECT r.source_id, r.target_id
+		FROM relations r
+		JOIN entities src ON src.id = r.source_id
+		JOIN entities tgt ON tgt.id = r.target_id
+		WHERE `+rFilter, rArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rRows.Close()
+
+	for rRows.Next() {
+		var src, tgt int64
+		if err := rRows.Scan(&src, &tgt); err != nil {
+			return nil, err
+		}
+		union(src, tgt)
+	}
+	if err := rRows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Group entity IDs by their root component.
+	components := make(map[int64][]int64)
+	for id := range parent {
+		root := find(id)
+		components[root] = append(components[root], id)
+	}
+	return components, nil
 }
 
 func (s *Store) communityMembers(communityID int64) ([]Entity, error) {
