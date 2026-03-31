@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"strings"
 
-	projectpkg "github.com/Gentleman-Programming/engram/internal/project"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	projectpkg "github.com/Edcko/Mneme/internal/project"
+	"github.com/Edcko/Mneme/internal/store"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -73,13 +73,14 @@ var ProfileAdmin = map[string]bool{
 	"mem_merge_projects": true, // destructive curation tool — not for agent use
 }
 
-// ProfileGraph contains the five Mneme knowledge graph tools.
+// ProfileGraph contains the six Mneme knowledge graph tools.
 var ProfileGraph = map[string]bool{
-	"mem_graph_search":     true, // BFS traversal from a named entity
-	"mem_entities":         true, // list/search entities
-	"mem_relations":        true, // relations for an entity
-	"mem_relation_history": true, // bi-temporal relation history
-	"mem_invalidate":       true, // mark a relation as superseded
+	"mem_graph_search":        true, // BFS traversal from a named entity
+	"mem_entities":            true, // list/search entities
+	"mem_relations":           true, // relations for an entity
+	"mem_relation_history":    true, // bi-temporal relation history
+	"mem_invalidate":          true, // mark a relation as superseded
+	"mem_rebuild_communities": true, // recompute connected components
 }
 
 // Profiles maps profile names to their tool sets.

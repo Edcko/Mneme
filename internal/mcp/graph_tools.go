@@ -1,12 +1,13 @@
 // graph_tools.go — Knowledge graph MCP tools for Mneme.
 //
-// Five new tools that expose the graph layer to AI agents:
+// Six new tools that expose the graph layer to AI agents:
 //
-//	mem_graph_search      — BFS traversal from a named entity
-//	mem_entities          — list/filter known entities
-//	mem_relations         — relations for a specific entity
-//	mem_relation_history  — bi-temporal history of a relation
-//	mem_invalidate        — mark a relation as no longer valid
+//	mem_graph_search          — BFS traversal from a named entity
+//	mem_entities              — list/filter known entities
+//	mem_relations             — relations for a specific entity
+//	mem_relation_history      — bi-temporal history of a relation
+//	mem_invalidate            — mark a relation as no longer valid
+//	mem_rebuild_communities   — recompute connected components via union-find
 //
 // All existing 15 tools are unchanged.
 
@@ -17,8 +18,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Gentleman-Programming/engram/internal/extractor"
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"github.com/Edcko/Mneme/internal/extractor"
+	"github.com/Edcko/Mneme/internal/store"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -164,6 +165,29 @@ func registerGraphTools(srv *mcpserver.MCPServer, s *store.Store, allowlist map[
 				),
 			),
 			handleInvalidate(s),
+		)
+	}
+
+	// ─── mem_rebuild_communities ────────────────────────────────────────
+	if shouldRegister("mem_rebuild_communities", allowlist) {
+		srv.AddTool(
+			mcp.NewTool("mem_rebuild_communities",
+				mcp.WithTitleAnnotation("Rebuild Communities"),
+				mcp.WithReadOnlyHintAnnotation(false),
+				mcp.WithDestructiveHintAnnotation(false),
+				mcp.WithIdempotentHintAnnotation(true),
+				mcp.WithDescription(
+					"Recompute community groupings using union-find connected components. "+
+						"Communities are clusters of entities connected by active relations. "+
+						"Run this periodically after significant graph changes. "+
+						"Only communities with 2+ members are stored.",
+				),
+				mcp.WithString("project",
+					mcp.Required(),
+					mcp.Description("Project scope for community rebuild"),
+				),
+			),
+			handleRebuildCommunities(s),
 		)
 	}
 }
@@ -391,6 +415,53 @@ func handleInvalidate(s *store.Store) func(context.Context, mcp.CallToolRequest)
 		return mcp.NewToolResultText(fmt.Sprintf(
 			"Relation %d invalidated. It remains in history but is no longer active.", id,
 		)), nil
+	}
+}
+
+func handleRebuildCommunities(s *store.Store) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		project := strArgGraph(req, "project", "")
+		if project == "" {
+			return mcp.NewToolResultError("project is required"), nil
+		}
+
+		if err := s.RebuildCommunities(project); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("rebuild communities failed: %v", err)), nil
+		}
+
+		communities, err := s.GetCommunities(project, 1000)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("fetch communities failed: %v", err)), nil
+		}
+
+		totalMembers := 0
+		for _, c := range communities {
+			totalMembers += len(c.Members)
+		}
+
+		if len(communities) == 0 {
+			return mcp.NewToolResultText(
+				fmt.Sprintf("Communities rebuilt for project %q. No multi-entity communities found.", project),
+			), nil
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("## Communities rebuilt for: %s\n\n", project))
+		sb.WriteString(fmt.Sprintf("**%d communities** with **%d total entities**:\n\n", len(communities), totalMembers))
+
+		for i, c := range communities {
+			sb.WriteString(fmt.Sprintf("  Community %d (%d members):\n", i+1, len(c.Members)))
+			for _, m := range c.Members {
+				proj := ""
+				if m.Project != nil {
+					proj = " [" + *m.Project + "]"
+				}
+				sb.WriteString(fmt.Sprintf("    - %s (%s)%s\n", m.Name, m.EntityType, proj))
+			}
+			sb.WriteString("\n")
+		}
+
+		return mcp.NewToolResultText(sb.String()), nil
 	}
 }
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"github.com/Edcko/Mneme/internal/store"
 	mcppkg "github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -973,7 +973,7 @@ func TestResolveToolsCombinedProfiles(t *testing.T) {
 		t.Fatal("expected non-nil allowlist for combined profiles")
 	}
 
-	// Should have all 20 tools (15 original + 5 graph)
+	// Should have all 21 tools (15 original + 6 graph)
 	allTools := []string{
 		"mem_save", "mem_search", "mem_context", "mem_session_summary",
 		"mem_session_start", "mem_session_end", "mem_get_observation",
@@ -981,7 +981,7 @@ func TestResolveToolsCombinedProfiles(t *testing.T) {
 		"mem_update", "mem_delete", "mem_stats", "mem_timeline", "mem_merge_projects",
 		// Mneme graph tools
 		"mem_graph_search", "mem_entities", "mem_relations",
-		"mem_relation_history", "mem_invalidate",
+		"mem_relation_history", "mem_invalidate", "mem_rebuild_communities",
 	}
 	for _, tool := range allTools {
 		if !result[tool] {
@@ -1169,7 +1169,7 @@ func TestNewServerWithToolsNilRegistersAll(t *testing.T) {
 		"mem_update", "mem_delete", "mem_stats", "mem_timeline", "mem_merge_projects",
 		// Mneme graph tools
 		"mem_graph_search", "mem_entities", "mem_relations",
-		"mem_relation_history", "mem_invalidate",
+		"mem_relation_history", "mem_invalidate", "mem_rebuild_communities",
 	}
 
 	for _, name := range allTools {
@@ -1208,14 +1208,14 @@ func TestNewServerBackwardsCompatible(t *testing.T) {
 	srv := NewServer(s)
 	tools := srv.ListTools()
 
-	// 11 agent + 4 admin + 5 graph = 20 total
-	if len(tools) != 20 {
-		t.Errorf("NewServer should register all 20 tools, got %d", len(tools))
+	// 11 agent + 4 admin + 6 graph = 21 total
+	if len(tools) != 21 {
+		t.Errorf("NewServer should register all 21 tools, got %d", len(tools))
 	}
 }
 
 func TestProfileConsistency(t *testing.T) {
-	// Verify that agent + admin + graph = all 20 tools
+	// Verify that agent + admin + graph = all 21 tools
 	combined := make(map[string]bool)
 	for tool := range ProfileAgent {
 		combined[tool] = true
@@ -1227,8 +1227,8 @@ func TestProfileConsistency(t *testing.T) {
 		combined[tool] = true
 	}
 
-	if len(combined) != 20 {
-		t.Errorf("agent + admin + graph should cover all 20 tools, got %d", len(combined))
+	if len(combined) != 21 {
+		t.Errorf("agent + admin + graph should cover all 21 tools, got %d", len(combined))
 	}
 
 	// Verify no overlap between profiles
@@ -1526,9 +1526,9 @@ func TestNewServerWithConfig(t *testing.T) {
 		t.Fatal("expected MCP server instance")
 	}
 	tools := srv.ListTools()
-	// Should have all 20 tools (15 original + 5 graph)
-	if len(tools) != 20 {
-		t.Errorf("NewServerWithConfig should register all 20 tools, got %d", len(tools))
+	// Should have all 21 tools (15 original + 6 graph)
+	if len(tools) != 21 {
+		t.Errorf("NewServerWithConfig should register all 21 tools, got %d", len(tools))
 	}
 }
 

@@ -73,10 +73,10 @@ type entityPattern struct {
 }
 
 type relationRule struct {
-	re         *regexp.Regexp
-	relation   string
-	sourceGrp  int
-	targetGrp  int
+	re        *regexp.Regexp
+	relation  string
+	sourceGrp int
+	targetGrp int
 }
 
 // NewRuleExtractor returns a ready-to-use RuleExtractor seeded with common
@@ -143,8 +143,8 @@ func (r *RuleExtractor) extractRelations(text string, entities []ExtractedEntity
 		matches := rule.re.FindAllStringSubmatch(text, -1)
 		for _, m := range matches {
 			if rule.sourceGrp < len(m) && rule.targetGrp < len(m) {
-				src := strings.TrimSpace(m[rule.sourceGrp])
-				tgt := strings.TrimSpace(m[rule.targetGrp])
+				src := strings.TrimRight(strings.TrimSpace(m[rule.sourceGrp]), ".")
+				tgt := strings.TrimRight(strings.TrimSpace(m[rule.targetGrp]), ".")
 				if src != "" && tgt != "" && src != tgt {
 					results = append(results, ExtractedRelation{
 						SourceName: src,
@@ -243,7 +243,7 @@ func buildPatterns() []entityPattern {
 		// File paths: internal/store/store.go, src/components/Button.tsx
 		{
 			re: regexp.MustCompile(
-				`(?:[a-zA-Z0-9_.-]+/)*[a-zA-Z0-9_.-]+\.(?:go|ts|tsx|js|jsx|py|rs|java|cpp|c|h|rb|php|swift|kt|cs|sh|yaml|yml|toml|json|sql|md)`,
+				`(?:[a-zA-Z0-9_.-]+/)*[a-zA-Z0-9_.-]+\.(?:go|tsx|ts|jsx|json|js|py|rs|java|cpp|c|h|rb|php|swift|kt|cs|sh|yaml|yml|toml|sql|md)`,
 			),
 			entityType: EntityTypeFile,
 			group:      0,
@@ -266,7 +266,7 @@ func buildRelationRules() []relationRule {
 		// "Decided to use X instead of Y"  → X usa_en_lugar_de Y
 		{
 			re: regexp.MustCompile(
-				`(?i)(?:decided|chose|switched|migrated|replaced)\s+(?:to\s+use\s+)?([A-Za-z0-9_.+-]+)\s+(?:instead\s+of|over|rather\s+than)\s+([A-Za-z0-9_.+-]+)`,
+				`(?i)(?:decided|chose|switched|migrated|replaced)\s+(?:to\s+(?:use\s+)?)?([A-Za-z0-9_.+-]+)\s+(?:instead\s+of|over|rather\s+than|with)\s+([A-Za-z0-9_.+-]+)`,
 			),
 			relation:  "reemplaza_a",
 			sourceGrp: 1,
@@ -333,7 +333,7 @@ func dedupRelations(relations []ExtractedRelation) []ExtractedRelation {
 // containsWord checks if text contains term as a whole word (case-sensitive match).
 // Uses a simple boundary check to avoid false positives (e.g. "Go" inside "Golang").
 func containsWord(text, term string) bool {
-	idx := strings.Index(text, term)
+	idx := strings.Index(strings.ToLower(text), strings.ToLower(term))
 	if idx < 0 {
 		return false
 	}

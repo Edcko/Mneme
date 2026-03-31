@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/setup"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	"github.com/Gentleman-Programming/engram/internal/version"
+	"github.com/Edcko/Mneme/internal/setup"
+	"github.com/Edcko/Mneme/internal/store"
+	"github.com/Edcko/Mneme/internal/version"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )

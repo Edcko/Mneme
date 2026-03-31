@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/mcp"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	versioncheck "github.com/Gentleman-Programming/engram/internal/version"
+	"github.com/Edcko/Mneme/internal/mcp"
+	"github.com/Edcko/Mneme/internal/store"
+	versioncheck "github.com/Edcko/Mneme/internal/version"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 

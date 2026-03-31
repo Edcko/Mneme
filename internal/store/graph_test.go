@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/store"
+	"github.com/Edcko/Mneme/internal/store"
 )
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

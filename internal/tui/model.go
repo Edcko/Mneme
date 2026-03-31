@@ -10,9 +10,9 @@
 package tui
 
 import (
-	"github.com/Gentleman-Programming/engram/internal/setup"
-	"github.com/Gentleman-Programming/engram/internal/store"
-	"github.com/Gentleman-Programming/engram/internal/version"
+	"github.com/Edcko/Mneme/internal/setup"
+	"github.com/Edcko/Mneme/internal/store"
+	"github.com/Edcko/Mneme/internal/version"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
