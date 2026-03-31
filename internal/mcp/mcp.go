@@ -73,10 +73,20 @@ var ProfileAdmin = map[string]bool{
 	"mem_merge_projects": true, // destructive curation tool — not for agent use
 }
 
+// ProfileGraph contains the five Mneme knowledge graph tools.
+var ProfileGraph = map[string]bool{
+	"mem_graph_search":     true, // BFS traversal from a named entity
+	"mem_entities":         true, // list/search entities
+	"mem_relations":        true, // relations for an entity
+	"mem_relation_history": true, // bi-temporal relation history
+	"mem_invalidate":       true, // mark a relation as superseded
+}
+
 // Profiles maps profile names to their tool sets.
 var Profiles = map[string]map[string]bool{
 	"agent": ProfileAgent,
 	"admin": ProfileAdmin,
+	"graph": ProfileGraph,
 }
 
 // ResolveTools takes a comma-separated string of profile names and/or
@@ -618,6 +628,9 @@ Duplicates are automatically detected and skipped — safe to call multiple time
 			handleMergeProjects(s),
 		)
 	}
+
+	// ─── Knowledge graph tools (Mneme extension) ─────────────────────────
+	registerGraphTools(srv, s, allowlist)
 }
 
 // ─── Tool Handlers ───────────────────────────────────────────────────────────
@@ -730,7 +743,7 @@ func handleSave(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {
 
 		truncated := len(content) > s.MaxObservationLength()
 
-		_, err := s.AddObservation(store.AddObservationParams{
+		obsID, err := s.AddObservation(store.AddObservationParams{
 			SessionID: sessionID,
 			Type:      typ,
 			Title:     title,
@@ -742,6 +755,9 @@ func handleSave(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError("Failed to save: " + err.Error()), nil
 		}
+
+		// Index entities and relations asynchronously — does not block the response.
+		go IndexObservationEntities(s, obsID, title+" "+content, project)
 
 		msg := fmt.Sprintf("Memory saved: %q (%s)", title, typ)
 		if topicKey == "" && suggestedTopicKey != "" {
@@ -1128,6 +1144,11 @@ func handleCapturePassive(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc 
 		})
 		if err != nil {
 			return mcp.NewToolResultError("Passive capture failed: " + err.Error()), nil
+		}
+
+		// Index entities from the full captured content asynchronously.
+		if result.Saved > 0 {
+			go IndexObservationEntities(s, 0, content, project)
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf(

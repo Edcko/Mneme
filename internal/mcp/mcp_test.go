@@ -968,17 +968,20 @@ func TestResolveToolsAdminProfile(t *testing.T) {
 }
 
 func TestResolveToolsCombinedProfiles(t *testing.T) {
-	result := ResolveTools("agent,admin")
+	result := ResolveTools("agent,admin,graph")
 	if result == nil {
 		t.Fatal("expected non-nil allowlist for combined profiles")
 	}
 
-	// Should have all 15 tools
+	// Should have all 20 tools (15 original + 5 graph)
 	allTools := []string{
 		"mem_save", "mem_search", "mem_context", "mem_session_summary",
 		"mem_session_start", "mem_session_end", "mem_get_observation",
 		"mem_suggest_topic_key", "mem_capture_passive", "mem_save_prompt",
 		"mem_update", "mem_delete", "mem_stats", "mem_timeline", "mem_merge_projects",
+		// Mneme graph tools
+		"mem_graph_search", "mem_entities", "mem_relations",
+		"mem_relation_history", "mem_invalidate",
 	}
 	for _, tool := range allTools {
 		if !result[tool] {
@@ -1164,6 +1167,9 @@ func TestNewServerWithToolsNilRegistersAll(t *testing.T) {
 		"mem_session_start", "mem_session_end", "mem_get_observation",
 		"mem_suggest_topic_key", "mem_capture_passive", "mem_save_prompt",
 		"mem_update", "mem_delete", "mem_stats", "mem_timeline", "mem_merge_projects",
+		// Mneme graph tools
+		"mem_graph_search", "mem_entities", "mem_relations",
+		"mem_relation_history", "mem_invalidate",
 	}
 
 	for _, name := range allTools {
@@ -1202,14 +1208,14 @@ func TestNewServerBackwardsCompatible(t *testing.T) {
 	srv := NewServer(s)
 	tools := srv.ListTools()
 
-	// 11 agent + 4 admin = 15 total
-	if len(tools) != 15 {
-		t.Errorf("NewServer should register all 15 tools, got %d", len(tools))
+	// 11 agent + 4 admin + 5 graph = 20 total
+	if len(tools) != 20 {
+		t.Errorf("NewServer should register all 20 tools, got %d", len(tools))
 	}
 }
 
 func TestProfileConsistency(t *testing.T) {
-	// Verify that agent + admin = all 15 tools
+	// Verify that agent + admin + graph = all 20 tools
 	combined := make(map[string]bool)
 	for tool := range ProfileAgent {
 		combined[tool] = true
@@ -1217,9 +1223,12 @@ func TestProfileConsistency(t *testing.T) {
 	for tool := range ProfileAdmin {
 		combined[tool] = true
 	}
+	for tool := range ProfileGraph {
+		combined[tool] = true
+	}
 
-	if len(combined) != 15 {
-		t.Errorf("agent + admin should cover all 15 tools, got %d", len(combined))
+	if len(combined) != 20 {
+		t.Errorf("agent + admin + graph should cover all 20 tools, got %d", len(combined))
 	}
 
 	// Verify no overlap between profiles
@@ -1517,9 +1526,9 @@ func TestNewServerWithConfig(t *testing.T) {
 		t.Fatal("expected MCP server instance")
 	}
 	tools := srv.ListTools()
-	// Should have all 15 tools
-	if len(tools) != 15 {
-		t.Errorf("NewServerWithConfig should register all 15 tools, got %d", len(tools))
+	// Should have all 20 tools (15 original + 5 graph)
+	if len(tools) != 20 {
+		t.Errorf("NewServerWithConfig should register all 20 tools, got %d", len(tools))
 	}
 }
 

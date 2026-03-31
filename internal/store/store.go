@@ -697,6 +697,11 @@ func (s *Store) migrate() error {
 		}
 	}
 
+	// Knowledge graph tables (Mneme extension).
+	if err := s.migrateGraph(); err != nil {
+		return fmt.Errorf("graph migration: %w", err)
+	}
+
 	return nil
 }
 
