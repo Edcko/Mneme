@@ -61,9 +61,10 @@ type Extractor interface {
 // RuleExtractor is the default zero-dependency extractor.
 // It combines a gazetteer lookup with compiled regex patterns.
 type RuleExtractor struct {
-	gazetteers map[EntityType]map[string]bool
-	patterns   []entityPattern
-	relRules   []relationRule
+	gazetteers   map[EntityType]map[string]bool
+	knownTermSet map[string]bool // lowercase set of all gazetteer terms for person filtering
+	patterns     []entityPattern
+	relRules     []relationRule
 }
 
 type entityPattern struct {
@@ -87,7 +88,36 @@ func NewRuleExtractor() *RuleExtractor {
 		patterns:   buildPatterns(),
 		relRules:   buildRelationRules(),
 	}
+	r.knownTermSet = r.buildKnownTermSet()
 	return r
+}
+
+// buildKnownTermSet creates a lowercase lookup of all gazetteer terms,
+// used to filter false-positive person detections.
+func (r *RuleExtractor) buildKnownTermSet() map[string]bool {
+	set := make(map[string]bool)
+	for _, gazette := range r.gazetteers {
+		for term := range gazette {
+			// Add the full term (handles multi-word entries like "clean architecture")
+			set[strings.ToLower(term)] = true
+			// Also add individual words (catches "Docker" in "Docker Containers")
+			for _, word := range strings.Fields(term) {
+				set[strings.ToLower(word)] = true
+			}
+		}
+	}
+	return set
+}
+
+// isKnownTerm checks if any word in name matches a known gazetteer term.
+// Used to prevent tech terms from being classified as person names.
+func (r *RuleExtractor) isKnownTerm(name string) bool {
+	for _, word := range strings.Fields(name) {
+		if r.knownTermSet[strings.ToLower(word)] {
+			return true
+		}
+	}
+	return false
 }
 
 // Extract runs both gazetteer lookup and regex patterns on text.
@@ -98,6 +128,17 @@ func (r *RuleExtractor) Extract(text string) ExtractionResult {
 		Entities:  dedupEntities(entities),
 		Relations: dedupRelations(relations),
 	}
+}
+
+// conceptStopWords prevents common words from being extracted as concepts
+// by definition patterns like "X is a/an/the ...".
+var conceptStopWords = map[string]bool{
+	"this": true, "that": true, "these": true, "those": true,
+	"there": true, "here": true, "when": true, "where": true,
+	"which": true, "what": true, "who": true, "how": true,
+	"why": true, "every": true, "some": true, "any": true,
+	"each": true, "both": true, "another": true, "other": true,
+	"such": true, "same": true, "the": true,
 }
 
 func (r *RuleExtractor) extractEntities(text string) []ExtractedEntity {
@@ -122,13 +163,30 @@ func (r *RuleExtractor) extractEntities(text string) []ExtractedEntity {
 		for _, m := range matches {
 			if p.group < len(m) && m[p.group] != "" {
 				name := strings.TrimSpace(m[p.group])
-				if name != "" {
-					results = append(results, ExtractedEntity{
-						Name:       name,
-						EntityType: p.entityType,
-						Confidence: 0.80,
-					})
+				if name == "" {
+					continue
 				}
+
+				// Filter: person names that overlap with known tech terms.
+				if p.entityType == EntityTypePerson && r.isKnownTerm(name) {
+					continue
+				}
+
+				// Filter: concept stop words and single lowercase words from backticks.
+				if p.entityType == EntityTypeConcept {
+					if conceptStopWords[strings.ToLower(name)] {
+						continue
+					}
+					if len(name) <= 2 {
+						continue
+					}
+				}
+
+				results = append(results, ExtractedEntity{
+					Name:       name,
+					EntityType: p.entityType,
+					Confidence: 0.80,
+				})
 			}
 		}
 	}
@@ -218,9 +276,33 @@ func buildGazetteers() map[EntityType]map[string]bool {
 		"Prisma", "Drizzle", "GORM", "sqlx", "pgx",
 	}
 
+	concepts := []string{
+		// Architecture & Design
+		"microservices", "monolith", "CQRS", "event sourcing",
+		"clean architecture", "hexagonal architecture",
+		"domain-driven design", "SOA",
+		// Design Principles
+		"SOLID", "DRY", "KISS", "YAGNI",
+		// Design Patterns
+		"singleton", "factory", "observer", "strategy", "adapter",
+		"decorator", "proxy", "facade", "mediator", "repository",
+		"unit of work",
+		// Methods & Practices
+		"TDD", "BDD", "CI/CD", "DevOps", "GitOps",
+		// Distributed Systems
+		"idempotency", "eventual consistency", "CAP theorem",
+		"ACID", "consensus",
+		// General CS
+		"concurrency", "parallelism", "memoization", "polymorphism",
+		"encapsulation", "abstraction", "composition", "immutability",
+		"recursion", "backpressure", "circuit breaker",
+		"rate limiting", "deadlock",
+	}
+
 	gazette := map[EntityType]map[string]bool{
 		EntityTypeTool:     {},
 		EntityTypeLanguage: {},
+		EntityTypeConcept:  {},
 	}
 
 	for _, t := range tools {
@@ -231,6 +313,9 @@ func buildGazetteers() map[EntityType]map[string]bool {
 	}
 	for _, l := range languages {
 		gazette[EntityTypeLanguage][l] = true
+	}
+	for _, c := range concepts {
+		gazette[EntityTypeConcept][c] = true
 	}
 
 	return gazette
@@ -255,6 +340,64 @@ func buildPatterns() []entityPattern {
 			),
 			entityType: EntityTypeProject,
 			group:      0,
+		},
+
+		// ─── Person patterns ───────────────────────────────────────
+
+		// Person: @username mentions (GitHub/social style)
+		{
+			re:         regexp.MustCompile(`@(\w{2,})`),
+			entityType: EntityTypePerson,
+			group:      1,
+		},
+		// Person: attribution — "by FirstName LastName", "author: FirstName LastName"
+		{
+			re:         regexp.MustCompile(`(?i)(?:by|author\s*:|credit\s*:)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)`),
+			entityType: EntityTypePerson,
+			group:      1,
+		},
+		// Person: communication verbs — "FirstName LastName said/mentioned/..."
+		{
+			re: regexp.MustCompile(
+				`([A-Z][a-z]+\s+[A-Z][a-z]+)\s+(?:said|mentioned|suggested|recommended|pointed\s+out|noted|explained|proposed|asked|reported)`,
+			),
+			entityType: EntityTypePerson,
+			group:      1,
+		},
+		// Person: attribution — "according to FirstName LastName", "per FirstName LastName"
+		{
+			re:         regexp.MustCompile(`(?i)(?:according\s+to|per)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)`),
+			entityType: EntityTypePerson,
+			group:      1,
+		},
+
+		// ─── Concept patterns ──────────────────────────────────────
+
+		// Concept: backtick-enclosed terms — `event sourcing`, `CQRS`
+		// Only letters and spaces to avoid code/file references.
+		{
+			re:         regexp.MustCompile("`([a-zA-Z][a-zA-Z ]+[a-zA-Z])`"),
+			entityType: EntityTypeConcept,
+			group:      1,
+		},
+		// Concept: definition — "X is a/an/the ..."
+		// Uses inline (?i:...) for keyword matching only, keeping [A-Z] case-sensitive.
+		{
+			re: regexp.MustCompile(
+				`\b([A-Z][a-zA-Z]+(?:\s+[a-z]+){0,2}?)\s+(?i:is)\s+(?i:a|an|the)\s+`,
+			),
+			entityType: EntityTypeConcept,
+			group:      1,
+		},
+		// Concept: suffix — "the X pattern/principle/algorithm/..."
+		// Single-word capture for precision; multi-word concepts are in gazetteer.
+		// Uses inline (?i:...) for keyword matching, keeping [A-Z] case-sensitive.
+		{
+			re: regexp.MustCompile(
+				`\b([A-Z][a-zA-Z]+)\s+(?i:pattern|principle|algorithm|architecture|paradigm|methodology)\b`,
+			),
+			entityType: EntityTypeConcept,
+			group:      1,
 		},
 	}
 }
@@ -296,6 +439,24 @@ func buildRelationRules() []relationRule {
 				`(?i)([A-Za-z0-9_]+)\s+(?:extends|implements|inherits\s+from|embeds)\s+([A-Za-z0-9_]+)`,
 			),
 			relation:  "extiende",
+			sourceGrp: 1,
+			targetGrp: 2,
+		},
+		// "X is part of Y" → parte_de
+		{
+			re: regexp.MustCompile(
+				`(?i)([A-Za-z0-9_.+-]+)\s+is\s+part\s+of\s+([A-Za-z0-9_.+-]+)`,
+			),
+			relation:  "parte_de",
+			sourceGrp: 1,
+			targetGrp: 2,
+		},
+		// "X is a type/kind of Y" → es_un
+		{
+			re: regexp.MustCompile(
+				`(?i)([A-Za-z0-9_.+-]+)\s+is\s+(?:a\s+)?(?:type|kind)\s+of\s+([A-Za-z0-9_.+-]+)`,
+			),
+			relation:  "es_un",
 			sourceGrp: 1,
 			targetGrp: 2,
 		},

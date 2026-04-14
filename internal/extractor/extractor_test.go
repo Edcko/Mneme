@@ -711,6 +711,457 @@ func TestIntegration_MultiLanguageParagraph(t *testing.T) {
 	}
 }
 
+// ─── Person: @mention Detection ────────────────────────────────────────────
+
+func TestPerson_AtMention(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	tests := []struct {
+		text   string
+		person string
+	}{
+		{"Thanks @johnsmith for the review", "johnsmith"},
+		{"cc @jane for visibility", "jane"},
+		{"Feedback from @misael on the PR", "misael"},
+		{"Pair programmed with @dev123 today", "dev123"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.person, func(t *testing.T) {
+			result := ex.Extract(tc.text)
+			if !hasEntity(result.Entities, tc.person, extractor.EntityTypePerson) {
+				t.Errorf("expected person @%q from: %s\ngot: %v", tc.person, tc.text, entityNames(result.Entities))
+			}
+		})
+	}
+}
+
+func TestPerson_AtMention_MinLength(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Single-char @mentions should not be extracted.
+	result := ex.Extract("Thanks @a for help")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypePerson && e.Name == "a" {
+			t.Error("single-char @mention should not be extracted as person")
+		}
+	}
+}
+
+// ─── Person: Attribution Patterns ──────────────────────────────────────────
+
+func TestPerson_ByAttribution(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	tests := []struct {
+		text   string
+		person string
+	}{
+		{"Auth module by Jane Doe", "Jane Doe"},
+		{"Feature by John Smith", "John Smith"},
+		{"author: Alice Wonderland", "Alice Wonderland"},
+		{"credit: Bob Builder", "Bob Builder"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.person, func(t *testing.T) {
+			result := ex.Extract(tc.text)
+			if !hasEntity(result.Entities, tc.person, extractor.EntityTypePerson) {
+				t.Errorf("expected person %q from: %s\ngot: %v", tc.person, tc.text, entityNames(result.Entities))
+			}
+		})
+	}
+}
+
+func TestPerson_CommunicationVerbs(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	tests := []struct {
+		text   string
+		person string
+	}{
+		{"John Smith suggested using Redis", "John Smith"},
+		{"Jane Doe mentioned the issue", "Jane Doe"},
+		{"Alice Park recommended upgrading", "Alice Park"},
+		{"Bob Builder pointed out the flaw", "Bob Builder"},
+		{"Carol King noted the inconsistency", "Carol King"},
+		{"Dave Wilson explained the architecture", "Dave Wilson"},
+		{"Eve Garcia proposed a refactor", "Eve Garcia"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.person, func(t *testing.T) {
+			result := ex.Extract(tc.text)
+			if !hasEntity(result.Entities, tc.person, extractor.EntityTypePerson) {
+				t.Errorf("expected person %q from: %s\ngot: %v", tc.person, tc.text, entityNames(result.Entities))
+			}
+		})
+	}
+}
+
+func TestPerson_AccordingTo(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	tests := []struct {
+		text   string
+		person string
+	}{
+		{"according to John Smith, the API is slow", "John Smith"},
+		{"According to Jane Doe, this is correct", "Jane Doe"},
+		{"per Alice Park, we need to migrate", "Alice Park"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.person, func(t *testing.T) {
+			result := ex.Extract(tc.text)
+			if !hasEntity(result.Entities, tc.person, extractor.EntityTypePerson) {
+				t.Errorf("expected person %q from: %s\ngot: %v", tc.person, tc.text, entityNames(result.Entities))
+			}
+		})
+	}
+}
+
+// ─── Person: False Positive Filtering ──────────────────────────────────────
+
+func TestPerson_FilterOutTechTerms(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "Docker Containers" looks like FirstName LastName but Docker is a known tool.
+	result := ex.Extract("by Docker Containers")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypePerson && strings.Contains(e.Name, "Docker") {
+			t.Errorf("'Docker Containers' should NOT be extracted as person, got: %v", e)
+		}
+	}
+
+	// "PostgreSQL Replica" — PostgreSQL is a known tool.
+	result = ex.Extract("According to PostgreSQL Replica, the sync failed")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypePerson && strings.Contains(e.Name, "PostgreSQL") {
+			t.Errorf("'PostgreSQL Replica' should NOT be extracted as person, got: %v", e)
+		}
+	}
+
+	// "Redis Cluster" — Redis is a known tool.
+	result = ex.Extract("Redis Cluster suggested a rebalance")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypePerson && strings.Contains(e.Name, "Redis") {
+			t.Errorf("'Redis Cluster' should NOT be extracted as person, got: %v", e)
+		}
+	}
+}
+
+func TestPerson_FilterOutSingleKnownTerm(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Even if one word matches a known term, the whole name is filtered.
+	result := ex.Extract("by React Developer")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypePerson && e.Name == "React Developer" {
+			t.Error("'React Developer' should be filtered because 'React' is a known tool")
+		}
+	}
+}
+
+// ─── Concept: Gazetteer Detection ──────────────────────────────────────────
+
+func TestConcept_Gazetteer(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	tests := []struct {
+		text    string
+		concept string
+	}{
+		{"We adopted microservices for this project", "microservices"},
+		{"The system uses event sourcing", "event sourcing"},
+		{"Following clean architecture principles", "clean architecture"},
+		{"Applying SOLID principles", "SOLID"},
+		{"Using the repository pattern", "repository"},
+		{"Practicing TDD", "TDD"},
+		{"Need idempotency for retries", "idempotency"},
+		{"Implemented circuit breaker for fault tolerance", "circuit breaker"},
+		{"Managing concurrency with goroutines", "concurrency"},
+		{"Achieving eventual consistency", "eventual consistency"},
+		{"CQRS separates reads and writes", "CQRS"},
+		{"Avoid deadlock in concurrent code", "deadlock"},
+		{"The monolith is too large", "monolith"},
+		{"Following DRY principle", "DRY"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.concept, func(t *testing.T) {
+			result := ex.Extract(tc.text)
+			if !hasEntity(result.Entities, tc.concept, extractor.EntityTypeConcept) {
+				t.Errorf("expected concept %q from: %s\ngot: %v", tc.concept, tc.text, entityNames(result.Entities))
+			}
+		})
+	}
+}
+
+// ─── Concept: Backtick Terms ───────────────────────────────────────────────
+
+func TestConcept_BacktickTerms(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	tests := []struct {
+		text    string
+		concept string
+	}{
+		{"Using `event sourcing` for state changes", "event sourcing"},
+		{"Implemented `circuit breaker` pattern", "circuit breaker"},
+		{"The `CQRS` pattern separates reads", "CQRS"},
+		{"Using `idempotency` for safe retries", "idempotency"},
+		{"Applied `rate limiting` to the API", "rate limiting"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.concept, func(t *testing.T) {
+			result := ex.Extract(tc.text)
+			if !hasEntity(result.Entities, tc.concept, extractor.EntityTypeConcept) {
+				t.Errorf("expected concept %q from: %s\ngot: %v", tc.concept, tc.text, entityNames(result.Entities))
+			}
+		})
+	}
+}
+
+func TestConcept_BacktickFiltersCode(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Code with dots/slashes/parens should NOT be extracted as concept.
+	result := ex.Extract("Called `extractEntities()` in the pipeline")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypeConcept {
+			t.Errorf("code reference should not be concept, got: %v", e)
+		}
+	}
+
+	// File paths in backticks should not be concepts.
+	result = ex.Extract("Edited `internal/store/store.go`")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypeConcept {
+			t.Errorf("file path in backticks should not be concept, got: %v", e)
+		}
+	}
+}
+
+func TestConcept_BacktickStopWords(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "the" in backticks is a stop word → not a concept.
+	result := ex.Extract("Set `the` as a keyword")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypeConcept && e.Name == "the" {
+			t.Error("'the' in backticks should be filtered as stop word")
+		}
+	}
+}
+
+// ─── Concept: Definition Patterns ──────────────────────────────────────────
+
+func TestConcept_DefinitionPattern(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	tests := []struct {
+		text    string
+		concept string
+	}{
+		// These are in the gazetteer → matched by gazetteer with canonical form.
+		{"We use microservices, microservices is a way to decompose apps", "microservices"},
+		{"CQRS is an approach to data management", "CQRS"},
+		// Non-gazetteer terms → matched purely by the definition regex pattern.
+		{"Memcached is a distributed caching system", "Memcached"},
+		{"Kubernetes is a container orchestration tool", "Kubernetes"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.concept, func(t *testing.T) {
+			result := ex.Extract(tc.text)
+			if !hasEntity(result.Entities, tc.concept, extractor.EntityTypeConcept) {
+				t.Errorf("expected concept %q from: %s\ngot: %v", tc.concept, tc.text, entityNames(result.Entities))
+			}
+		})
+	}
+}
+
+func TestConcept_DefinitionStopWords(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "This is a test" → "This" is a stop word → should not be concept.
+	result := ex.Extract("This is a test of the system")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypeConcept && e.Name == "This" {
+			t.Error("'This' should be filtered as stop word in definition pattern")
+		}
+	}
+}
+
+// ─── Concept: Pattern/Principle Suffix ─────────────────────────────────────
+
+func TestConcept_SuffixPattern(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	tests := []struct {
+		text    string
+		concept string
+	}{
+		// Non-gazetteer concepts → captured purely by suffix regex.
+		{"Implemented the Saga pattern for transactions", "Saga"},
+		{"Applied the Memento pattern for undo", "Memento"},
+		// Gazetteer acronym → canonical form matches.
+		{"Following the SOLID principle", "SOLID"},
+		// Gazetteer lowercase concept → captured with canonical form.
+		{"Using the observer pattern", "observer"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.concept, func(t *testing.T) {
+			result := ex.Extract(tc.text)
+			if !hasEntity(result.Entities, tc.concept, extractor.EntityTypeConcept) {
+				t.Errorf("expected concept %q from: %s\ngot: %v", tc.concept, tc.text, entityNames(result.Entities))
+			}
+		})
+	}
+}
+
+// ─── New Relation Rules ────────────────────────────────────────────────────
+
+func TestRelationRules_ParteDe(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	tests := []struct {
+		name   string
+		text   string
+		source string
+		target string
+	}{
+		{"is part of", "Auth is part of the main service", "Auth", "the"},
+		{"module is part of", "UserService is part of CoreModule", "UserService", "CoreModule"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ex.Extract(tc.text)
+			if !hasRelation(result.Relations, "parte_de", tc.source, tc.target) {
+				t.Errorf("expected parte_de(%q, %q) from: %s\ngot: %v",
+					tc.source, tc.target, tc.text, result.Relations)
+			}
+		})
+	}
+}
+
+func TestRelationRules_EsUn(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	tests := []struct {
+		name   string
+		text   string
+		source string
+		target string
+	}{
+		{"is a type of", "PostgreSQL is a type of database", "PostgreSQL", "database"},
+		{"is a kind of", "Redis is a kind of cache", "Redis", "cache"},
+		{"is type of", "GraphQL is type of API", "GraphQL", "API"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ex.Extract(tc.text)
+			if !hasRelation(result.Relations, "es_un", tc.source, tc.target) {
+				t.Errorf("expected es_un(%q, %q) from: %s\ngot: %v",
+					tc.source, tc.target, tc.text, result.Relations)
+			}
+		})
+	}
+}
+
+// ─── Integration: Person + Concept Extraction ──────────────────────────────
+
+func TestIntegration_PersonAndConceptInContext(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	text := "According to Jane Smith, the `circuit breaker` pattern prevents cascading failures. " +
+		"John Doe suggested using `event sourcing` for the audit trail. " +
+		"We adopted microservices and follow the SOLID principle. " +
+		"Auth module by Alice Park uses JWT for authentication. " +
+		"@bob reviewed the PR and noted that idempotency is important for retries."
+
+	result := ex.Extract(text)
+
+	// Person detections.
+	wantPersons := []string{"Jane Smith", "John Doe", "Alice Park", "bob"}
+	for _, name := range wantPersons {
+		if !hasEntity(result.Entities, name, extractor.EntityTypePerson) {
+			t.Errorf("missing person %q, got: %v", name, entityNames(result.Entities))
+		}
+	}
+
+	// Concept detections (via gazetteer + backtick + definition + suffix).
+	wantConcepts := []string{"circuit breaker", "event sourcing", "microservices", "SOLID", "idempotency"}
+	for _, name := range wantConcepts {
+		if !hasEntity(result.Entities, name, extractor.EntityTypeConcept) {
+			t.Errorf("missing concept %q, got: %v", name, entityNames(result.Entities))
+		}
+	}
+
+	// Tool/language detections should still work.
+	if !hasEntity(result.Entities, "JWT", extractor.EntityTypeTool) {
+		t.Error("JWT should still be detected as tool")
+	}
+}
+
+func TestIntegration_NewRelationsInParagraph(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	text := "UserService is part of CoreModule. " +
+		"PostgreSQL is a type of database. " +
+		"API depends on Redis."
+
+	result := ex.Extract(text)
+
+	if !hasRelation(result.Relations, "parte_de", "UserService", "CoreModule") {
+		t.Error("missing parte_de(UserService, CoreModule)")
+	}
+	if !hasRelation(result.Relations, "es_un", "PostgreSQL", "database") {
+		t.Error("missing es_un(PostgreSQL, database)")
+	}
+	if !hasRelation(result.Relations, "depende_de", "API", "Redis") {
+		t.Error("missing depende_de(API, Redis)")
+	}
+}
+
+// ─── Regression: No False Positives on Plain Text ─────────────────────────
+
+func TestRegression_PlainTextNoSpuriousConcepts(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Plain text should not produce spurious person or concept entities.
+	result := ex.Extract("The quick brown fox jumps over the lazy dog")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypePerson {
+			t.Errorf("plain text should not produce person entities, got: %v", e)
+		}
+	}
+}
+
+func TestRegression_DefinitionPatternNoCommonWords(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Common words should not be extracted as concepts.
+	badTexts := []string{
+		"This is a test",
+		"That is the way",
+		"There is a problem",
+	}
+	for _, text := range badTexts {
+		result := ex.Extract(text)
+		for _, e := range result.Entities {
+			if e.EntityType == extractor.EntityTypeConcept {
+				t.Errorf("common word text should not produce concepts, got %q from: %s", e.Name, text)
+			}
+		}
+	}
+}
+
 // ─── entityNames is a debug helper for test error messages ────────────────────
 
 func entityNames(entities []extractor.ExtractedEntity) []string {
