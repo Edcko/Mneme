@@ -48,6 +48,7 @@ type Observation struct {
 	TopicKey       *string `json:"topic_key,omitempty"`
 	RevisionCount  int     `json:"revision_count"`
 	DuplicateCount int     `json:"duplicate_count"`
+	Revision       int     `json:"revision"`
 	LastSeenAt     *string `json:"last_seen_at,omitempty"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
@@ -87,6 +88,7 @@ type TimelineEntry struct {
 	TopicKey       *string `json:"topic_key,omitempty"`
 	RevisionCount  int     `json:"revision_count"`
 	DuplicateCount int     `json:"duplicate_count"`
+	Revision       int     `json:"revision"`
 	LastSeenAt     *string `json:"last_seen_at,omitempty"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
@@ -197,6 +199,28 @@ type EnrolledProject struct {
 	EnrolledAt string `json:"enrolled_at"`
 }
 
+// SyncConflict represents a detected conflict between local and remote versions.
+type SyncConflict struct {
+	ID             int64   `json:"id"`
+	Entity         string  `json:"entity"`
+	EntityKey      string  `json:"entity_key"`
+	LocalRevision  int     `json:"local_revision"`
+	RemoteRevision int     `json:"remote_revision"`
+	LocalData      string  `json:"local_data"`
+	RemoteData     string  `json:"remote_data"`
+	DetectedAt     string  `json:"detected_at"`
+	ResolvedAt     *string `json:"resolved_at,omitempty"`
+	Resolution     *string `json:"resolution,omitempty"`
+	Project        string  `json:"project"`
+}
+
+// Conflict resolution strategies.
+const (
+	ConflictResolutionLocal  = "local"
+	ConflictResolutionRemote = "remote"
+	ConflictResolutionMerge  = "merge"
+)
+
 type syncSessionPayload struct {
 	ID        string  `json:"id"`
 	Project   string  `json:"project"`
@@ -215,6 +239,7 @@ type syncObservationPayload struct {
 	Project    *string `json:"project,omitempty"`
 	Scope      string  `json:"scope"`
 	TopicKey   *string `json:"topic_key,omitempty"`
+	Revision   int     `json:"revision,omitempty"`
 	Deleted    bool    `json:"deleted,omitempty"`
 	DeletedAt  *string `json:"deleted_at,omitempty"`
 	HardDelete bool    `json:"hard_delete,omitempty"`
@@ -623,6 +648,34 @@ func (s *Store) migrate() error {
 		return err
 	}
 
+	// Revision-based conflict detection: add revision columns and conflicts table.
+	if err := s.addColumnIfNotExists("observations", "revision", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfNotExists("sync_mutations", "revision", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if _, err := s.execHook(s.db, `
+		CREATE TABLE IF NOT EXISTS sync_conflicts (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity          TEXT    NOT NULL,
+			entity_key      TEXT    NOT NULL,
+			local_revision  INTEGER NOT NULL,
+			remote_revision INTEGER NOT NULL,
+			local_data      TEXT    NOT NULL,
+			remote_data     TEXT    NOT NULL,
+			detected_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+			resolved_at     TEXT,
+			resolution      TEXT,
+			project         TEXT    NOT NULL DEFAULT ''
+		);
+	`); err != nil {
+		return err
+	}
+	if err := s.addColumnIfNotExists("sync_conflicts", "project", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+
 	if _, err := s.execHook(s.db, `UPDATE user_prompts SET project = '' WHERE project IS NULL`); err != nil {
 		return err
 	}
@@ -910,7 +963,7 @@ func (s *Store) AllObservations(project, scope string, limit int) ([]Observation
 
 	query := `
 		SELECT o.id, ifnull(o.sync_id, '') as sync_id, o.session_id, o.type, o.title, o.content, o.tool_name, o.project,
-		       o.scope, o.topic_key, o.revision_count, o.duplicate_count, o.last_seen_at, o.created_at, o.updated_at, o.deleted_at
+		       o.scope, o.topic_key, o.revision_count, o.duplicate_count, o.revision, o.last_seen_at, o.created_at, o.updated_at, o.deleted_at
 		FROM observations o
 		WHERE o.deleted_at IS NULL
 	`
@@ -939,7 +992,7 @@ func (s *Store) SessionObservations(sessionID string, limit int) ([]Observation,
 
 	query := `
 		SELECT id, ifnull(sync_id, '') as sync_id, session_id, type, title, content, tool_name, project,
-		       scope, topic_key, revision_count, duplicate_count, last_seen_at, created_at, updated_at, deleted_at
+		       scope, topic_key, revision_count, duplicate_count, revision, last_seen_at, created_at, updated_at, deleted_at
 		FROM observations
 		WHERE session_id = ? AND deleted_at IS NULL
 		ORDER BY created_at ASC
@@ -1088,7 +1141,7 @@ func (s *Store) RecentObservations(project, scope string, limit int) ([]Observat
 
 	query := `
 		SELECT o.id, ifnull(o.sync_id, '') as sync_id, o.session_id, o.type, o.title, o.content, o.tool_name, o.project,
-		       o.scope, o.topic_key, o.revision_count, o.duplicate_count, o.last_seen_at, o.created_at, o.updated_at, o.deleted_at
+		       o.scope, o.topic_key, o.revision_count, o.duplicate_count, o.revision, o.last_seen_at, o.created_at, o.updated_at, o.deleted_at
 		FROM observations o
 		WHERE o.deleted_at IS NULL
 	`
@@ -1228,13 +1281,13 @@ func (s *Store) SearchPrompts(query string, project string, limit int) ([]Prompt
 func (s *Store) GetObservation(id int64) (*Observation, error) {
 	row := s.db.QueryRow(
 		`SELECT id, ifnull(sync_id, '') as sync_id, session_id, type, title, content, tool_name, project,
-		        scope, topic_key, revision_count, duplicate_count, last_seen_at, created_at, updated_at, deleted_at
+		        scope, topic_key, revision_count, duplicate_count, revision, last_seen_at, created_at, updated_at, deleted_at
 		 FROM observations WHERE id = ? AND deleted_at IS NULL`, id,
 	)
 	var o Observation
 	if err := row.Scan(
 		&o.ID, &o.SyncID, &o.SessionID, &o.Type, &o.Title, &o.Content,
-		&o.ToolName, &o.Project, &o.Scope, &o.TopicKey, &o.RevisionCount, &o.DuplicateCount, &o.LastSeenAt,
+		&o.ToolName, &o.Project, &o.Scope, &o.TopicKey, &o.RevisionCount, &o.DuplicateCount, &o.Revision, &o.LastSeenAt,
 		&o.CreatedAt, &o.UpdatedAt, &o.DeletedAt,
 	); err != nil {
 		return nil, err
@@ -2126,12 +2179,12 @@ func (s *Store) ApplyPulledMutation(targetKey string, mutation SyncMutation) err
 func (s *Store) GetObservationBySyncID(syncID string) (*Observation, error) {
 	row := s.db.QueryRow(
 		`SELECT id, ifnull(sync_id, '') as sync_id, session_id, type, title, content, tool_name, project,
-		        scope, topic_key, revision_count, duplicate_count, last_seen_at, created_at, updated_at, deleted_at
+		        scope, topic_key, revision_count, duplicate_count, revision, last_seen_at, created_at, updated_at, deleted_at
 		 FROM observations WHERE sync_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1`,
 		syncID,
 	)
 	var o Observation
-	if err := row.Scan(&o.ID, &o.SyncID, &o.SessionID, &o.Type, &o.Title, &o.Content, &o.ToolName, &o.Project, &o.Scope, &o.TopicKey, &o.RevisionCount, &o.DuplicateCount, &o.LastSeenAt, &o.CreatedAt, &o.UpdatedAt, &o.DeletedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.SyncID, &o.SessionID, &o.Type, &o.Title, &o.Content, &o.ToolName, &o.Project, &o.Scope, &o.TopicKey, &o.RevisionCount, &o.DuplicateCount, &o.Revision, &o.LastSeenAt, &o.CreatedAt, &o.UpdatedAt, &o.DeletedAt); err != nil {
 		return nil, err
 	}
 	return &o, nil
@@ -2212,6 +2265,93 @@ func (s *Store) IsProjectEnrolled(project string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// ─── Sync Conflict Resolution ────────────────────────────────────────────────
+
+// ListSyncConflicts returns unresolved sync conflicts, optionally filtered by project.
+// Results are ordered by detection time (most recent first).
+func (s *Store) ListSyncConflicts(project string) ([]SyncConflict, error) {
+	query := `
+		SELECT id, entity, entity_key, local_revision, remote_revision,
+		       local_data, remote_data, detected_at, resolved_at, resolution,
+		       ifnull(project, '') as project
+		FROM sync_conflicts
+		WHERE resolved_at IS NULL`
+	args := []any{}
+	if project != "" {
+		query += " AND project = ?"
+		args = append(args, project)
+	}
+	query += " ORDER BY detected_at DESC"
+
+	rows, err := s.queryItHook(s.db, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list sync conflicts: %w", err)
+	}
+	defer rows.Close()
+
+	var conflicts []SyncConflict
+	for rows.Next() {
+		var c SyncConflict
+		if err := rows.Scan(&c.ID, &c.Entity, &c.EntityKey, &c.LocalRevision, &c.RemoteRevision, &c.LocalData, &c.RemoteData, &c.DetectedAt, &c.ResolvedAt, &c.Resolution, &c.Project); err != nil {
+			return nil, err
+		}
+		conflicts = append(conflicts, c)
+	}
+	return conflicts, rows.Err()
+}
+
+// ResolveConflict resolves a sync conflict by applying the chosen strategy.
+// Supported strategies: "local" (keep local data), "remote" (apply remote data).
+// Returns an error if the conflict doesn't exist or is already resolved.
+func (s *Store) ResolveConflict(id int64, resolution string) error {
+	if resolution != ConflictResolutionLocal && resolution != ConflictResolutionRemote {
+		return fmt.Errorf("unsupported resolution strategy: %q", resolution)
+	}
+
+	return s.withTx(func(tx *sql.Tx) error {
+		var conflict SyncConflict
+		err := tx.QueryRow(
+			`SELECT id, entity, entity_key, local_revision, remote_revision,
+			        local_data, remote_data, detected_at, resolved_at, resolution,
+			        ifnull(project, '') as project
+			 FROM sync_conflicts WHERE id = ? AND resolved_at IS NULL`, id,
+		).Scan(&conflict.ID, &conflict.Entity, &conflict.EntityKey, &conflict.LocalRevision, &conflict.RemoteRevision, &conflict.LocalData, &conflict.RemoteData, &conflict.DetectedAt, &conflict.ResolvedAt, &conflict.Resolution, &conflict.Project)
+		if err != nil {
+			return fmt.Errorf("conflict %d not found or already resolved: %w", id, err)
+		}
+
+		if resolution == ConflictResolutionRemote {
+			var payload syncObservationPayload
+			if err := json.Unmarshal([]byte(conflict.RemoteData), &payload); err != nil {
+				return fmt.Errorf("decode remote data for conflict %d: %w", id, err)
+			}
+			existing, err := s.getObservationBySyncIDTx(tx, payload.SyncID, true)
+			if err != nil {
+				return fmt.Errorf("find observation for conflict %d: %w", id, err)
+			}
+			newRevision := conflict.RemoteRevision
+			if newRevision <= existing.Revision {
+				newRevision = existing.Revision + 1
+			}
+			if _, err := s.execHook(tx,
+				`UPDATE observations
+				 SET session_id = ?, type = ?, title = ?, content = ?, tool_name = ?, project = ?, scope = ?, topic_key = ?, normalized_hash = ?, revision_count = revision_count + 1, revision = ?, updated_at = datetime('now'), deleted_at = NULL
+				 WHERE id = ?`,
+				payload.SessionID, payload.Type, payload.Title, payload.Content, payload.ToolName, payload.Project, normalizeScope(payload.Scope), payload.TopicKey, hashNormalized(payload.Content), newRevision, existing.ID,
+			); err != nil {
+				return fmt.Errorf("apply remote data for conflict %d: %w", id, err)
+			}
+		}
+		// For local_wins, we just mark the conflict as resolved without changing data.
+
+		_, err = s.execHook(tx,
+			`UPDATE sync_conflicts SET resolved_at = datetime('now'), resolution = ? WHERE id = ?`,
+			resolution, id,
+		)
+		return err
+	})
 }
 
 // ─── Project Migration ───────────────────────────────────────────────────────
@@ -2848,11 +2988,11 @@ func decodeSyncPayload(payload []byte, dest any) error {
 func (s *Store) getObservationTx(tx *sql.Tx, id int64) (*Observation, error) {
 	row := tx.QueryRow(
 		`SELECT id, ifnull(sync_id, '') as sync_id, session_id, type, title, content, tool_name, project,
-		        scope, topic_key, revision_count, duplicate_count, last_seen_at, created_at, updated_at, deleted_at
+		        scope, topic_key, revision_count, duplicate_count, revision, last_seen_at, created_at, updated_at, deleted_at
 		 FROM observations WHERE id = ? AND deleted_at IS NULL`, id,
 	)
 	var o Observation
-	if err := row.Scan(&o.ID, &o.SyncID, &o.SessionID, &o.Type, &o.Title, &o.Content, &o.ToolName, &o.Project, &o.Scope, &o.TopicKey, &o.RevisionCount, &o.DuplicateCount, &o.LastSeenAt, &o.CreatedAt, &o.UpdatedAt, &o.DeletedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.SyncID, &o.SessionID, &o.Type, &o.Title, &o.Content, &o.ToolName, &o.Project, &o.Scope, &o.TopicKey, &o.RevisionCount, &o.DuplicateCount, &o.Revision, &o.LastSeenAt, &o.CreatedAt, &o.UpdatedAt, &o.DeletedAt); err != nil {
 		return nil, err
 	}
 	return &o, nil
@@ -2860,7 +3000,7 @@ func (s *Store) getObservationTx(tx *sql.Tx, id int64) (*Observation, error) {
 
 func (s *Store) getObservationBySyncIDTx(tx *sql.Tx, syncID string, includeDeleted bool) (*Observation, error) {
 	query := `SELECT id, ifnull(sync_id, '') as sync_id, session_id, type, title, content, tool_name, project,
-		        scope, topic_key, revision_count, duplicate_count, last_seen_at, created_at, updated_at, deleted_at
+		        scope, topic_key, revision_count, duplicate_count, revision, last_seen_at, created_at, updated_at, deleted_at
 		 FROM observations WHERE sync_id = ?`
 	if !includeDeleted {
 		query += ` AND deleted_at IS NULL`
@@ -2868,7 +3008,7 @@ func (s *Store) getObservationBySyncIDTx(tx *sql.Tx, syncID string, includeDelet
 	query += ` ORDER BY id DESC LIMIT 1`
 	row := tx.QueryRow(query, syncID)
 	var o Observation
-	if err := row.Scan(&o.ID, &o.SyncID, &o.SessionID, &o.Type, &o.Title, &o.Content, &o.ToolName, &o.Project, &o.Scope, &o.TopicKey, &o.RevisionCount, &o.DuplicateCount, &o.LastSeenAt, &o.CreatedAt, &o.UpdatedAt, &o.DeletedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.SyncID, &o.SessionID, &o.Type, &o.Title, &o.Content, &o.ToolName, &o.Project, &o.Scope, &o.TopicKey, &o.RevisionCount, &o.DuplicateCount, &o.Revision, &o.LastSeenAt, &o.CreatedAt, &o.UpdatedAt, &o.DeletedAt); err != nil {
 		return nil, err
 	}
 	return &o, nil
@@ -2885,6 +3025,7 @@ func observationPayloadFromObservation(obs *Observation) syncObservationPayload 
 		Project:   obs.Project,
 		Scope:     obs.Scope,
 		TopicKey:  obs.TopicKey,
+		Revision:  obs.Revision,
 	}
 }
 
@@ -2905,21 +3046,46 @@ func (s *Store) applySessionPayloadTx(tx *sql.Tx, payload syncSessionPayload) er
 func (s *Store) applyObservationUpsertTx(tx *sql.Tx, payload syncObservationPayload) error {
 	existing, err := s.getObservationBySyncIDTx(tx, payload.SyncID, true)
 	if err == sql.ErrNoRows {
+		rev := payload.Revision
+		if rev < 1 {
+			rev = 1
+		}
 		_, err = s.execHook(tx,
-			`INSERT INTO observations (sync_id, session_id, type, title, content, tool_name, project, scope, topic_key, normalized_hash, revision_count, duplicate_count, updated_at, deleted_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, datetime('now'), NULL)`,
-			payload.SyncID, payload.SessionID, payload.Type, payload.Title, payload.Content, payload.ToolName, payload.Project, normalizeScope(payload.Scope), payload.TopicKey, hashNormalized(payload.Content),
+			`INSERT INTO observations (sync_id, session_id, type, title, content, tool_name, project, scope, topic_key, normalized_hash, revision_count, duplicate_count, revision, updated_at, deleted_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, datetime('now'), NULL)`,
+			payload.SyncID, payload.SessionID, payload.Type, payload.Title, payload.Content, payload.ToolName, payload.Project, normalizeScope(payload.Scope), payload.TopicKey, hashNormalized(payload.Content), rev,
 		)
 		return err
 	}
 	if err != nil {
 		return err
 	}
+
+	// Revision-based conflict detection: if both sides have revision info and
+	// the remote is not strictly newer than local, record a conflict instead of
+	// overwriting local data. Payloads with Revision=0 (legacy) bypass detection.
+	if payload.Revision > 0 && existing.Revision > 0 && payload.Revision <= existing.Revision {
+		localData, _ := json.Marshal(observationPayloadFromObservation(existing))
+		remoteData, _ := json.Marshal(payload)
+		project := derefString(existing.Project)
+		_, err = s.execHook(tx,
+			`INSERT INTO sync_conflicts (entity, entity_key, local_revision, remote_revision, local_data, remote_data, project)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			SyncEntityObservation, payload.SyncID, existing.Revision, payload.Revision, string(localData), string(remoteData), project,
+		)
+		return err
+	}
+
+	// Apply: remote is newer or legacy (revision=0). Bump revision.
+	newRevision := payload.Revision
+	if newRevision <= existing.Revision {
+		newRevision = existing.Revision + 1
+	}
 	_, err = s.execHook(tx,
 		`UPDATE observations
-		 SET session_id = ?, type = ?, title = ?, content = ?, tool_name = ?, project = ?, scope = ?, topic_key = ?, normalized_hash = ?, revision_count = revision_count + 1, updated_at = datetime('now'), deleted_at = NULL
+		 SET session_id = ?, type = ?, title = ?, content = ?, tool_name = ?, project = ?, scope = ?, topic_key = ?, normalized_hash = ?, revision_count = revision_count + 1, revision = ?, updated_at = datetime('now'), deleted_at = NULL
 		 WHERE id = ?`,
-		payload.SessionID, payload.Type, payload.Title, payload.Content, payload.ToolName, payload.Project, normalizeScope(payload.Scope), payload.TopicKey, hashNormalized(payload.Content), existing.ID,
+		payload.SessionID, payload.Type, payload.Title, payload.Content, payload.ToolName, payload.Project, normalizeScope(payload.Scope), payload.TopicKey, hashNormalized(payload.Content), newRevision, existing.ID,
 	)
 	return err
 }
@@ -2980,7 +3146,7 @@ func (s *Store) queryObservations(query string, args ...any) ([]Observation, err
 		var o Observation
 		if err := rows.Scan(
 			&o.ID, &o.SyncID, &o.SessionID, &o.Type, &o.Title, &o.Content,
-			&o.ToolName, &o.Project, &o.Scope, &o.TopicKey, &o.RevisionCount, &o.DuplicateCount, &o.LastSeenAt,
+			&o.ToolName, &o.Project, &o.Scope, &o.TopicKey, &o.RevisionCount, &o.DuplicateCount, &o.Revision, &o.LastSeenAt,
 			&o.CreatedAt, &o.UpdatedAt, &o.DeletedAt,
 		); err != nil {
 			return nil, err
