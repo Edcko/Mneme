@@ -99,6 +99,12 @@ func stubRuntimeHooks(t *testing.T) {
 	oldSyncImport := syncImport
 	oldSyncExport := syncExport
 	oldCheckForUpdates := checkForUpdates
+	oldGraphListEntities := graphListEntities
+	oldGraphGetEntityByID := graphGetEntityByID
+	oldGraphSearchEntities := graphSearchEntities
+	oldGraphGetRelations := graphGetRelations
+	oldGraphBFS := graphBFS
+	oldGraphGetCommunities := graphGetCommunities
 
 	storeNew = store.New
 	newHTTPServer = func(s *store.Store, _ int) *engramsrv.Server { return engramsrv.New(s, 0) }
@@ -141,6 +147,22 @@ func stubRuntimeHooks(t *testing.T) {
 	checkForUpdates = func(string) versioncheck.CheckResult {
 		return versioncheck.CheckResult{Status: versioncheck.StatusUpToDate}
 	}
+	graphListEntities = func(s *store.Store, entityType, project string, limit int) ([]store.Entity, error) {
+		return s.ListEntities(entityType, project, limit)
+	}
+	graphGetEntityByID = func(s *store.Store, id int64) (*store.Entity, error) { return s.GetEntityByID(id) }
+	graphSearchEntities = func(s *store.Store, query, entityType, project string, limit int) ([]store.Entity, error) {
+		return s.SearchEntities(query, entityType, project, limit)
+	}
+	graphGetRelations = func(s *store.Store, entityID int64, activeOnly bool) ([]store.Relation, error) {
+		return s.GetEntityRelations(entityID, activeOnly)
+	}
+	graphBFS = func(s *store.Store, seedID int64, maxDepth int, project string) (*store.GraphResult, error) {
+		return s.GraphBFS(seedID, maxDepth, project)
+	}
+	graphGetCommunities = func(s *store.Store, project string, limit int) ([]store.Community, error) {
+		return s.GetCommunities(project, limit)
+	}
 
 	t.Cleanup(func() {
 		storeNew = oldStoreNew
@@ -166,6 +188,12 @@ func stubRuntimeHooks(t *testing.T) {
 		syncImport = oldSyncImport
 		syncExport = oldSyncExport
 		checkForUpdates = oldCheckForUpdates
+		graphListEntities = oldGraphListEntities
+		graphGetEntityByID = oldGraphGetEntityByID
+		graphSearchEntities = oldGraphSearchEntities
+		graphGetRelations = oldGraphGetRelations
+		graphBFS = oldGraphBFS
+		graphGetCommunities = oldGraphGetCommunities
 	})
 }
 

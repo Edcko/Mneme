@@ -8,6 +8,7 @@
 //	engram save           Save a memory from CLI
 //	engram context        Show recent context
 //	engram stats          Show memory stats
+//	engram graph          Explore knowledge graph (entities, relations, traverse)
 package main
 
 import (
@@ -95,6 +96,24 @@ var (
 		return sy.Export(createdBy, project)
 	}
 
+	// Graph operations — injectable for testing.
+	graphListEntities = func(s *store.Store, entityType, project string, limit int) ([]store.Entity, error) {
+		return s.ListEntities(entityType, project, limit)
+	}
+	graphGetEntityByID  = func(s *store.Store, id int64) (*store.Entity, error) { return s.GetEntityByID(id) }
+	graphSearchEntities = func(s *store.Store, query, entityType, project string, limit int) ([]store.Entity, error) {
+		return s.SearchEntities(query, entityType, project, limit)
+	}
+	graphGetRelations = func(s *store.Store, entityID int64, activeOnly bool) ([]store.Relation, error) {
+		return s.GetEntityRelations(entityID, activeOnly)
+	}
+	graphBFS = func(s *store.Store, seedID int64, maxDepth int, project string) (*store.GraphResult, error) {
+		return s.GraphBFS(seedID, maxDepth, project)
+	}
+	graphGetCommunities = func(s *store.Store, project string, limit int) ([]store.Community, error) {
+		return s.GetCommunities(project, limit)
+	}
+
 	exitFunc = os.Exit
 
 	stdinScanner = func() *bufio.Scanner { return bufio.NewScanner(os.Stdin) }
@@ -158,6 +177,8 @@ func main() {
 		cmdImport(cfg)
 	case "sync":
 		cmdSync(cfg)
+	case "graph":
+		cmdGraph(cfg)
 	case "projects":
 		cmdProjects(cfg)
 	case "setup":
@@ -1235,6 +1256,374 @@ func cmdProjectsPrune(cfg store.Config) {
 	fmt.Printf("\nPruned %d project(s): %d sessions, %d prompts removed.\n", len(selected), totalSessions, totalPrompts)
 }
 
+// ─── Graph commands ─────────────────────────────────────────────────────────
+
+func cmdGraph(cfg store.Config) {
+	subCmd := "entities"
+	if len(os.Args) > 2 {
+		subCmd = os.Args[2]
+	}
+	switch subCmd {
+	case "entities":
+		cmdGraphEntities(cfg)
+	case "entity":
+		cmdGraphEntity(cfg)
+	case "search":
+		cmdGraphSearch(cfg)
+	case "traverse":
+		cmdGraphTraverse(cfg)
+	case "communities":
+		cmdGraphCommunities(cfg)
+	case "help", "--help", "-h":
+		fmt.Fprint(os.Stderr, graphUsage)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown graph subcommand: %s\n", subCmd)
+		fmt.Fprint(os.Stderr, graphUsage)
+		exitFunc(1)
+	}
+}
+
+const graphUsage = `Usage:
+  engram graph entities [--type TYPE] [--project PROJECT] [--limit N]
+                      List entities in the knowledge graph
+  engram graph entity <id>
+                      Show entity detail and its active relations
+  engram graph search <query> [--type TYPE] [--project PROJECT] [--limit N]
+                      Search entities by name/summary (FTS5)
+  engram graph traverse <id> [--depth N] [--project PROJECT]
+                      BFS graph traversal from an entity
+  engram graph communities [--project PROJECT] [--limit N]
+                      List communities (clusters of connected entities)
+
+Options:
+  --type TYPE       Filter by entity type (person, project, file, tool, concept, language)
+  --project PROJECT Filter by project
+  --limit N         Max results (default: 20)
+  --depth N         Max BFS depth (default: 3, max: 10)
+`
+
+func cmdGraphEntities(cfg store.Config) {
+	entityType := ""
+	project := ""
+	limit := 20
+
+	for i := 3; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--type":
+			if i+1 < len(os.Args) {
+				entityType = os.Args[i+1]
+				i++
+			}
+		case "--project":
+			if i+1 < len(os.Args) {
+				project = os.Args[i+1]
+				i++
+			}
+		case "--limit":
+			if i+1 < len(os.Args) {
+				if n, err := strconv.Atoi(os.Args[i+1]); err == nil {
+					limit = n
+				}
+				i++
+			}
+		}
+	}
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	entities, err := graphListEntities(s, entityType, project, limit)
+	if err != nil {
+		fatal(err)
+	}
+
+	if len(entities) == 0 {
+		fmt.Println("No entities found.")
+		return
+	}
+
+	fmt.Printf("Entities (%d):\n", len(entities))
+	for _, e := range entities {
+		proj := ""
+		if e.Project != nil {
+			proj = fmt.Sprintf(" | %s", *e.Project)
+		}
+		summary := ""
+		if e.Summary != nil {
+			summary = fmt.Sprintf(" — %s", truncate(*e.Summary, 60))
+		}
+		fmt.Printf("  #%d %-12s %-30s%s%s\n", e.ID, e.EntityType, e.Name, summary, proj)
+	}
+}
+
+func cmdGraphEntity(cfg store.Config) {
+	if len(os.Args) < 4 {
+		fmt.Fprintln(os.Stderr, "usage: engram graph entity <id>")
+		exitFunc(1)
+	}
+
+	id, err := strconv.ParseInt(os.Args[3], 10, 64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: invalid entity id %q\n", os.Args[3])
+		exitFunc(1)
+	}
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	entity, err := graphGetEntityByID(s, id)
+	if err != nil {
+		fatal(err)
+	}
+
+	// Print entity detail
+	proj := "(none)"
+	if entity.Project != nil {
+		proj = *entity.Project
+	}
+	summary := "(none)"
+	if entity.Summary != nil {
+		summary = *entity.Summary
+	}
+
+	fmt.Printf("Entity #%d\n", entity.ID)
+	fmt.Printf("  Name:   %s\n", entity.Name)
+	fmt.Printf("  Type:   %s\n", entity.EntityType)
+	fmt.Printf("  Project: %s\n", proj)
+	fmt.Printf("  Summary: %s\n", summary)
+	fmt.Printf("  Created: %s\n", entity.CreatedAt)
+	fmt.Printf("  Updated: %s\n", entity.UpdatedAt)
+
+	// Show active relations
+	relations, err := graphGetRelations(s, id, true)
+	if err != nil {
+		fatal(err)
+	}
+
+	if len(relations) == 0 {
+		fmt.Println("\n  No active relations.")
+		return
+	}
+
+	fmt.Printf("\n  Active relations (%d):\n", len(relations))
+	for _, r := range relations {
+		if r.SourceID == id {
+			fmt.Printf("    → [%s] %s (#%d)\n", r.Relation, r.TargetName, r.TargetID)
+		} else {
+			fmt.Printf("    ← [%s] %s (#%d)\n", r.Relation, r.SourceName, r.SourceID)
+		}
+	}
+}
+
+func cmdGraphSearch(cfg store.Config) {
+	if len(os.Args) < 4 {
+		fmt.Fprintln(os.Stderr, "usage: engram graph search <query> [--type TYPE] [--project PROJECT] [--limit N]")
+		exitFunc(1)
+	}
+
+	// Collect query (everything before flags)
+	var queryParts []string
+	entityType := ""
+	project := ""
+	limit := 20
+
+	for i := 3; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--type":
+			if i+1 < len(os.Args) {
+				entityType = os.Args[i+1]
+				i++
+			}
+		case "--project":
+			if i+1 < len(os.Args) {
+				project = os.Args[i+1]
+				i++
+			}
+		case "--limit":
+			if i+1 < len(os.Args) {
+				if n, err := strconv.Atoi(os.Args[i+1]); err == nil {
+					limit = n
+				}
+				i++
+			}
+		default:
+			queryParts = append(queryParts, os.Args[i])
+		}
+	}
+
+	query := strings.Join(queryParts, " ")
+	if query == "" {
+		fmt.Fprintln(os.Stderr, "error: search query is required")
+		exitFunc(1)
+	}
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	entities, err := graphSearchEntities(s, query, entityType, project, limit)
+	if err != nil {
+		fatal(err)
+	}
+
+	if len(entities) == 0 {
+		fmt.Printf("No entities found for: %q\n", query)
+		return
+	}
+
+	fmt.Printf("Found %d entities:\n", len(entities))
+	for _, e := range entities {
+		proj := ""
+		if e.Project != nil {
+			proj = fmt.Sprintf(" | %s", *e.Project)
+		}
+		summary := ""
+		if e.Summary != nil {
+			summary = fmt.Sprintf(" — %s", truncate(*e.Summary, 60))
+		}
+		fmt.Printf("  #%d %-12s %-30s%s%s\n", e.ID, e.EntityType, e.Name, summary, proj)
+	}
+}
+
+func cmdGraphTraverse(cfg store.Config) {
+	if len(os.Args) < 4 {
+		fmt.Fprintln(os.Stderr, "usage: engram graph traverse <entity_id> [--depth N] [--project PROJECT]")
+		exitFunc(1)
+	}
+
+	id, err := strconv.ParseInt(os.Args[3], 10, 64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: invalid entity id %q\n", os.Args[3])
+		exitFunc(1)
+	}
+
+	maxDepth := 3
+	project := ""
+	for i := 4; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--depth":
+			if i+1 < len(os.Args) {
+				if n, err := strconv.Atoi(os.Args[i+1]); err == nil {
+					maxDepth = n
+				}
+				i++
+			}
+		case "--project":
+			if i+1 < len(os.Args) {
+				project = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	result, err := graphBFS(s, id, maxDepth, project)
+	if err != nil {
+		fatal(err)
+	}
+
+	// Seed
+	seedProj := ""
+	if result.Seed.Project != nil {
+		seedProj = fmt.Sprintf(" [%s]", *result.Seed.Project)
+	}
+	fmt.Printf("Seed: #%d %s (%s)%s\n\n", result.Seed.ID, result.Seed.Name, result.Seed.EntityType, seedProj)
+
+	// Nodes by depth
+	if len(result.Nodes) == 0 {
+		fmt.Println("No connected entities found.")
+		return
+	}
+
+	fmt.Printf("Connected entities (%d):\n", len(result.Nodes))
+	for _, n := range result.Nodes {
+		proj := ""
+		if n.Project != nil {
+			proj = fmt.Sprintf(" | %s", *n.Project)
+		}
+		fmt.Printf("  depth %d: #%d %-12s %-30s%s\n", n.Depth, n.ID, n.EntityType, n.Name, proj)
+	}
+
+	// Relations
+	if len(result.Relations) > 0 {
+		fmt.Printf("\nRelations (%d):\n", len(result.Relations))
+		for _, r := range result.Relations {
+			status := "active"
+			if r.TInvalid != nil {
+				status = "superseded"
+			}
+			fmt.Printf("  %s --[%s]--> %s  (%s)\n", r.SourceName, r.Relation, r.TargetName, status)
+		}
+	}
+}
+
+func cmdGraphCommunities(cfg store.Config) {
+	project := ""
+	limit := 20
+
+	for i := 3; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--project":
+			if i+1 < len(os.Args) {
+				project = os.Args[i+1]
+				i++
+			}
+		case "--limit":
+			if i+1 < len(os.Args) {
+				if n, err := strconv.Atoi(os.Args[i+1]); err == nil {
+					limit = n
+				}
+				i++
+			}
+		}
+	}
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	communities, err := graphGetCommunities(s, project, limit)
+	if err != nil {
+		fatal(err)
+	}
+
+	if len(communities) == 0 {
+		fmt.Println("No communities found. Run 'engram graph rebuild' via MCP to detect communities.")
+		return
+	}
+
+	fmt.Printf("Communities (%d):\n", len(communities))
+	for _, c := range communities {
+		proj := ""
+		if c.Project != nil {
+			proj = fmt.Sprintf(" [%s]", *c.Project)
+		}
+		summary := ""
+		if c.Summary != nil {
+			summary = fmt.Sprintf(": %s", *c.Summary)
+		}
+		fmt.Printf("\n  Community #%d%s%s (%d members)\n", c.ID, proj, summary, len(c.Members))
+		for _, m := range c.Members {
+			fmt.Printf("    - #%d %-12s %s\n", m.ID, m.EntityType, m.Name)
+		}
+	}
+}
+
 func cmdSetup() {
 	agents := setupSupportedAgents()
 
@@ -1356,6 +1745,13 @@ Commands:
                      Merge similar project names into one canonical name
                        --all      Scan ALL projects for similar name groups
                        --dry-run  Preview what would be merged (no changes)
+  graph entities     List knowledge graph entities [--type TYPE] [--project PROJECT] [--limit N]
+  graph entity <id>  Show entity detail and its active relations
+  graph search <query>
+                     Search entities by name/summary [--type TYPE] [--project PROJECT] [--limit N]
+  graph traverse <id>
+                     BFS graph traversal from entity [--depth N] [--project PROJECT]
+  graph communities  List communities (clusters of connected entities) [--project PROJECT]
   setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
   sync               Export new memories as compressed chunk to .engram/
                        --import   Import new chunks from .engram/ into local DB

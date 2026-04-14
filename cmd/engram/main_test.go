@@ -954,3 +954,367 @@ func TestCmdSyncUsesDetectProject(t *testing.T) {
 		t.Fatalf("expected detectProject result in output, got: %q", stdout)
 	}
 }
+
+// ─── Graph command tests ─────────────────────────────────────────────────────
+
+func mustSeedEntity(t *testing.T, cfg store.Config, name string, entityType store.EntityType, summary, project string) int64 {
+	t.Helper()
+	s, err := store.New(cfg)
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	defer s.Close()
+	id, err := s.UpsertEntity(name, entityType, summary, project)
+	if err != nil {
+		t.Fatalf("UpsertEntity(%q, %q): %v", name, entityType, err)
+	}
+	return id
+}
+
+func mustSeedRelation(t *testing.T, cfg store.Config, sourceID, targetID int64, relation string) int64 {
+	t.Helper()
+	s, err := store.New(cfg)
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	defer s.Close()
+	id, err := s.AddRelation(sourceID, targetID, relation, nil)
+	if err != nil {
+		t.Fatalf("AddRelation(%d, %d, %q): %v", sourceID, targetID, relation, err)
+	}
+	return id
+}
+
+func TestCmdGraphRoutesSubcommands(t *testing.T) {
+	cfg := testConfig(t)
+
+	// "entities" subcommand
+	withArgs(t, "engram", "graph", "entities")
+	stdout, stderr := captureOutput(t, func() { cmdGraph(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "No entities found") {
+		t.Fatalf("expected no entities message, got: %q", stdout)
+	}
+
+	// default (no subcommand) → entities
+	withArgs(t, "engram", "graph")
+	stdout2, _ := captureOutput(t, func() { cmdGraph(cfg) })
+	_ = stdout2
+}
+
+func TestCmdGraphUnknownSubcommand(t *testing.T) {
+	stubExitWithPanic(t)
+	cfg := testConfig(t)
+
+	withArgs(t, "engram", "graph", "nonexistent")
+	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdGraph(cfg) })
+	if _, ok := recovered.(exitCode); !ok {
+		t.Fatalf("expected exit panic, got %v", recovered)
+	}
+	if !strings.Contains(stderr, "unknown graph subcommand") {
+		t.Fatalf("expected unknown subcommand error, got: %q", stderr)
+	}
+}
+
+func TestCmdGraphEntities(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed entities
+	mustSeedEntity(t, cfg, "React", store.EntityTypeConcept, "UI library", "webapp")
+	mustSeedEntity(t, cfg, "Alice", store.EntityTypePerson, "Lead developer", "webapp")
+	mustSeedEntity(t, cfg, "Go", store.EntityTypeLanguage, "Backend language", "server")
+
+	withArgs(t, "engram", "graph", "entities")
+	stdout, stderr := captureOutput(t, func() { cmdGraphEntities(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Entities (3)") {
+		t.Fatalf("expected 3 entities, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "React") || !strings.Contains(stdout, "Alice") || !strings.Contains(stdout, "Go") {
+		t.Fatalf("expected entity names in output, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphEntitiesWithFilters(t *testing.T) {
+	cfg := testConfig(t)
+
+	mustSeedEntity(t, cfg, "React", store.EntityTypeConcept, "UI library", "webapp")
+	mustSeedEntity(t, cfg, "Alice", store.EntityTypePerson, "Lead developer", "webapp")
+	mustSeedEntity(t, cfg, "Go", store.EntityTypeLanguage, "", "server")
+
+	// Filter by type
+	withArgs(t, "engram", "graph", "entities", "--type", "person")
+	stdout, stderr := captureOutput(t, func() { cmdGraphEntities(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Entities (1)") || !strings.Contains(stdout, "Alice") {
+		t.Fatalf("expected 1 person entity, got: %q", stdout)
+	}
+	if strings.Contains(stdout, "React") {
+		t.Fatalf("should not include React when filtering by person, got: %q", stdout)
+	}
+
+	// Filter by project
+	withArgs(t, "engram", "graph", "entities", "--project", "webapp")
+	stdout, _ = captureOutput(t, func() { cmdGraphEntities(cfg) })
+	if !strings.Contains(stdout, "Entities (2)") {
+		t.Fatalf("expected 2 webapp entities, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphEntity(t *testing.T) {
+	cfg := testConfig(t)
+
+	reactID := mustSeedEntity(t, cfg, "React", store.EntityTypeConcept, "UI library", "webapp")
+	aliceID := mustSeedEntity(t, cfg, "Alice", store.EntityTypePerson, "Lead developer", "webapp")
+	mustSeedRelation(t, cfg, aliceID, reactID, "uses")
+
+	withArgs(t, "engram", "graph", "entity", strconv.FormatInt(reactID, 10))
+	stdout, stderr := captureOutput(t, func() { cmdGraphEntity(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Entity #"+strconv.FormatInt(reactID, 10)) {
+		t.Fatalf("expected entity header, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "React") || !strings.Contains(stdout, "concept") {
+		t.Fatalf("expected entity detail, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "UI library") {
+		t.Fatalf("expected summary, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "uses") || !strings.Contains(stdout, "Alice") {
+		t.Fatalf("expected relation to Alice, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphEntityNoRelations(t *testing.T) {
+	cfg := testConfig(t)
+	entityID := mustSeedEntity(t, cfg, "Solo", store.EntityTypeConcept, "No connections", "")
+
+	withArgs(t, "engram", "graph", "entity", strconv.FormatInt(entityID, 10))
+	stdout, stderr := captureOutput(t, func() { cmdGraphEntity(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "No active relations") {
+		t.Fatalf("expected no relations message, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphEntityUsageErrors(t *testing.T) {
+	cfg := testConfig(t)
+	stubExitWithPanic(t)
+
+	assertFatal := func(t *testing.T, stderr string, recovered any, want string) {
+		t.Helper()
+		if _, ok := recovered.(exitCode); !ok {
+			t.Fatalf("expected exit panic, got %v", recovered)
+		}
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q: %q", want, stderr)
+		}
+	}
+
+	// Missing ID
+	withArgs(t, "engram", "graph", "entity")
+	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdGraphEntity(cfg) })
+	assertFatal(t, stderr, recovered, "usage: engram graph entity")
+
+	// Invalid ID
+	withArgs(t, "engram", "graph", "entity", "not-a-number")
+	_, stderr, recovered = captureOutputAndRecover(t, func() { cmdGraphEntity(cfg) })
+	assertFatal(t, stderr, recovered, "invalid entity id")
+}
+
+func TestCmdGraphSearch(t *testing.T) {
+	cfg := testConfig(t)
+
+	mustSeedEntity(t, cfg, "React", store.EntityTypeConcept, "UI library for building interfaces", "webapp")
+	mustSeedEntity(t, cfg, "Alice", store.EntityTypePerson, "React developer", "webapp")
+
+	withArgs(t, "engram", "graph", "search", "React")
+	stdout, stderr := captureOutput(t, func() { cmdGraphSearch(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Found") {
+		t.Fatalf("expected search results, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphSearchEmpty(t *testing.T) {
+	cfg := testConfig(t)
+
+	withArgs(t, "engram", "graph", "search", "nonexistent")
+	stdout, stderr := captureOutput(t, func() { cmdGraphSearch(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "No entities found") {
+		t.Fatalf("expected no results message, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphSearchUsageErrors(t *testing.T) {
+	cfg := testConfig(t)
+	stubExitWithPanic(t)
+
+	assertFatal := func(t *testing.T, stderr string, recovered any, want string) {
+		t.Helper()
+		if _, ok := recovered.(exitCode); !ok {
+			t.Fatalf("expected exit panic, got %v", recovered)
+		}
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q: %q", want, stderr)
+		}
+	}
+
+	// Missing query
+	withArgs(t, "engram", "graph", "search")
+	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdGraphSearch(cfg) })
+	assertFatal(t, stderr, recovered, "usage: engram graph search")
+
+	// Only flags, no query
+	withArgs(t, "engram", "graph", "search", "--type", "person")
+	_, stderr, recovered = captureOutputAndRecover(t, func() { cmdGraphSearch(cfg) })
+	assertFatal(t, stderr, recovered, "search query is required")
+}
+
+func TestCmdGraphTraverse(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Build a small graph: Alice --uses--> React --related_to--> TypeScript
+	aliceID := mustSeedEntity(t, cfg, "Alice", store.EntityTypePerson, "Developer", "webapp")
+	reactID := mustSeedEntity(t, cfg, "React", store.EntityTypeConcept, "UI library", "webapp")
+	tsID := mustSeedEntity(t, cfg, "TypeScript", store.EntityTypeLanguage, "Typed JS", "webapp")
+
+	mustSeedRelation(t, cfg, aliceID, reactID, "uses")
+	mustSeedRelation(t, cfg, reactID, tsID, "related_to")
+
+	withArgs(t, "engram", "graph", "traverse", strconv.FormatInt(aliceID, 10), "--depth", "3")
+	stdout, stderr := captureOutput(t, func() { cmdGraphTraverse(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Seed:") || !strings.Contains(stdout, "Alice") {
+		t.Fatalf("expected seed header, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Connected entities") {
+		t.Fatalf("expected connected entities section, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "React") {
+		t.Fatalf("expected React in traversal, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Relations") || !strings.Contains(stdout, "uses") {
+		t.Fatalf("expected relations section, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphTraverseNoConnections(t *testing.T) {
+	cfg := testConfig(t)
+	entityID := mustSeedEntity(t, cfg, "Isolated", store.EntityTypeConcept, "", "")
+
+	withArgs(t, "engram", "graph", "traverse", strconv.FormatInt(entityID, 10))
+	stdout, stderr := captureOutput(t, func() { cmdGraphTraverse(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "No connected entities") {
+		t.Fatalf("expected no connections message, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphTraverseUsageErrors(t *testing.T) {
+	cfg := testConfig(t)
+	stubExitWithPanic(t)
+
+	assertFatal := func(t *testing.T, stderr string, recovered any, want string) {
+		t.Helper()
+		if _, ok := recovered.(exitCode); !ok {
+			t.Fatalf("expected exit panic, got %v", recovered)
+		}
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q: %q", want, stderr)
+		}
+	}
+
+	// Missing ID
+	withArgs(t, "engram", "graph", "traverse")
+	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdGraphTraverse(cfg) })
+	assertFatal(t, stderr, recovered, "usage: engram graph traverse")
+
+	// Invalid ID
+	withArgs(t, "engram", "graph", "traverse", "abc")
+	_, stderr, recovered = captureOutputAndRecover(t, func() { cmdGraphTraverse(cfg) })
+	assertFatal(t, stderr, recovered, "invalid entity id")
+}
+
+func TestCmdGraphCommunitiesEmpty(t *testing.T) {
+	cfg := testConfig(t)
+
+	withArgs(t, "engram", "graph", "communities")
+	stdout, stderr := captureOutput(t, func() { cmdGraphCommunities(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "No communities found") {
+		t.Fatalf("expected no communities message, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphCommunities(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed entities and relations, then rebuild communities
+	aliceID := mustSeedEntity(t, cfg, "Alice", store.EntityTypePerson, "", "webapp")
+	reactID := mustSeedEntity(t, cfg, "React", store.EntityTypeConcept, "", "webapp")
+	mustSeedRelation(t, cfg, aliceID, reactID, "uses")
+
+	s, err := store.New(cfg)
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	if err := s.RebuildCommunities("webapp"); err != nil {
+		t.Fatalf("RebuildCommunities: %v", err)
+	}
+	s.Close()
+
+	withArgs(t, "engram", "graph", "communities", "--project", "webapp")
+	stdout, stderr := captureOutput(t, func() { cmdGraphCommunities(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Communities") {
+		t.Fatalf("expected communities output, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphHelp(t *testing.T) {
+	withArgs(t, "engram", "graph", "help")
+	stdout, stderr := captureOutput(t, func() { cmdGraph(testConfig(t)) })
+	combined := stdout + stderr
+	if !strings.Contains(combined, "engram graph entities") {
+		t.Fatalf("expected graph usage in output, got stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestMainDispatchGraph(t *testing.T) {
+	stubRuntimeHooks(t)
+	stubExitWithPanic(t)
+	t.Setenv("ENGRAM_DATA_DIR", t.TempDir())
+
+	withArgs(t, "engram", "graph", "entities")
+	stdout, stderr, recovered := captureOutputAndRecover(t, func() { main() })
+	if recovered != nil || stderr != "" {
+		t.Fatalf("graph entities dispatch failed: panic=%v stderr=%q", recovered, stderr)
+	}
+	if !strings.Contains(stdout, "No entities found") && !strings.Contains(stdout, "Entities") {
+		t.Fatalf("unexpected graph entities output: %q", stdout)
+	}
+}
