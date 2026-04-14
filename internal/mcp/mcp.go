@@ -6,10 +6,11 @@
 //
 // Tool profiles allow agents to load only the tools they need:
 //
-//	engram mcp                    → all 15 tools (default)
-//	engram mcp --tools=agent      → 11 tools agents actually use (per skill files)
-//	engram mcp --tools=admin      → 4 tools for TUI/CLI (delete, stats, timeline, merge)
-//	engram mcp --tools=agent,admin → combine profiles
+//	engram mcp                         → all 21 tools (default)
+//	engram mcp --tools=agent,graph     → 17 tools for AI coding sessions (recommended)
+//	engram mcp --tools=agent           → 11 agent tools (per skill files)
+//	engram mcp --tools=admin           → 4 tools for TUI/CLI (delete, stats, timeline, merge)
+//	engram mcp --tools=agent,admin     → combine profiles
 //	engram mcp --tools=mem_save,mem_search → individual tool names
 package mcp
 

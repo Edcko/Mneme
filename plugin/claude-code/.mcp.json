@@ -2,7 +2,7 @@
   "mcpServers": {
     "engram": {
       "command": "engram",
-      "args": ["mcp", "--tools=agent"]
+      "args": ["mcp", "--tools=agent,graph"]
     }
   }
 }

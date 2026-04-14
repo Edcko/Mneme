@@ -75,7 +75,13 @@ const claudeCodeMarketplace = "Gentleman-Programming/engram"
 var claudeCodeMCPTools = []string{
 	"mcp__plugin_engram_engram__mem_capture_passive",
 	"mcp__plugin_engram_engram__mem_context",
+	"mcp__plugin_engram_engram__mem_entities",
 	"mcp__plugin_engram_engram__mem_get_observation",
+	"mcp__plugin_engram_engram__mem_graph_search",
+	"mcp__plugin_engram_engram__mem_invalidate",
+	"mcp__plugin_engram_engram__mem_rebuild_communities",
+	"mcp__plugin_engram_engram__mem_relation_history",
+	"mcp__plugin_engram_engram__mem_relations",
 	"mcp__plugin_engram_engram__mem_save",
 	"mcp__plugin_engram_engram__mem_save_prompt",
 	"mcp__plugin_engram_engram__mem_search",
@@ -92,13 +98,13 @@ var claudeCodeMCPTools = []string{
 // which uses resolveEngramCommand() at runtime. This constant is kept for tests
 // that verify idempotency against the already-written string when os.Executable
 // returns "engram" (fallback path).
-const codexEngramBlock = "[mcp_servers.engram]\ncommand = \"engram\"\nargs = [\"mcp\", \"--tools=agent\"]"
+const codexEngramBlock = "[mcp_servers.engram]\ncommand = \"engram\"\nargs = [\"mcp\", \"--tools=agent,graph\"]"
 
 // codexEngramBlockStr returns the Codex TOML block for the engram MCP server,
 // using the resolved absolute binary path from os.Executable().
 func codexEngramBlockStr() string {
 	cmd := resolveEngramCommand()
-	return "[mcp_servers.engram]\ncommand = " + fmt.Sprintf("%q", cmd) + "\nargs = [\"mcp\", \"--tools=agent\"]"
+	return "[mcp_servers.engram]\ncommand = " + fmt.Sprintf("%q", cmd) + "\nargs = [\"mcp\", \"--tools=agent,graph\"]"
 }
 
 const memoryProtocolMarkdown = `## Engram Persistent Memory — Protocol
@@ -320,7 +326,7 @@ func installOpenCode() (*Result, error) {
 		cmd := resolveEngramCommand()
 		fmt.Fprintf(os.Stderr, "warning: could not auto-register MCP server in opencode.json: %v\n", err)
 		fmt.Fprintf(os.Stderr, "  Add manually to your opencode.json under \"mcp\":\n")
-		fmt.Fprintf(os.Stderr, "  \"engram\": { \"type\": \"local\", \"command\": [%q, \"mcp\", \"--tools=agent\"], \"enabled\": true }\n", cmd)
+		fmt.Fprintf(os.Stderr, "  \"engram\": { \"type\": \"local\", \"command\": [%q, \"mcp\", \"--tools=agent,graph\"], \"enabled\": true }\n", cmd)
 	} else {
 		files = 2
 	}
@@ -374,7 +380,7 @@ func injectOpenCodeMCP() error {
 	// where PATH is not inherited) get the absolute binary path.
 	engramEntry := map[string]interface{}{
 		"type":    "local",
-		"command": []string{resolveEngramCommand(), "mcp", "--tools=agent"},
+		"command": []string{resolveEngramCommand(), "mcp", "--tools=agent,graph"},
 		"enabled": true,
 	}
 	entryJSON, err := jsonMarshalFn(engramEntry)
@@ -557,7 +563,7 @@ func writeClaudeCodeUserMCP() error {
 
 	entry := map[string]any{
 		"command": exe,
-		"args":    []string{"mcp", "--tools=agent"},
+		"args":    []string{"mcp", "--tools=agent,graph"},
 	}
 	data, err := jsonMarshalIndentFn(entry, "", "  ")
 	if err != nil {
@@ -724,7 +730,7 @@ func injectGeminiMCP(configPath string) error {
 
 	engramEntry := map[string]any{
 		"command": resolveEngramCommand(),
-		"args":    []string{"mcp", "--tools=agent"},
+		"args":    []string{"mcp", "--tools=agent,graph"},
 	}
 	entryJSON, err := jsonMarshalFn(engramEntry)
 	if err != nil {

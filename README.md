@@ -213,10 +213,10 @@ The `Extractor` interface is pluggable — swap `RuleExtractor` for an LLM-based
 Tool profiles control which MCP tools are registered per connection:
 
 ```bash
-mneme mcp --tools=agent        # 11 memory tools (AI coding sessions)
+mneme mcp --tools=agent,graph  # 17 tools (AI coding sessions + knowledge graph) ← recommended
+mneme mcp --tools=agent        # 11 memory tools only
 mneme mcp --tools=admin        # 5 curation/stats tools (TUI, dashboards)
-mneme mcp --tools=graph        # 6 knowledge graph tools
-mneme mcp --tools=agent,graph  # combine profiles
+mneme mcp --tools=graph        # 6 knowledge graph tools only
 mneme mcp                      # all tools (default)
 ```
 

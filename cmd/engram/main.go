@@ -1339,10 +1339,10 @@ Commands:
   serve [port]       Start HTTP API server (default: 7437)
   mcp [--tools=PROFILE] [--project=NAME]
                      Start MCP server (stdio transport, for any AI agent)
-                       Profiles: agent (11 tools), admin (4 tools), all (default, 15)
-                       Combine: --tools=agent,admin or pick individual tools
-                       --project  Override detected project name (default: git remote → cwd)
-                       Example: engram mcp --tools=agent
+                        Profiles: agent (11 tools), graph (6 tools), admin (4 tools), all (default, 21)
+                        Combine: --tools=agent,graph or pick individual tools
+                        --project  Override detected project name (default: git remote → cwd)
+                        Example: engram mcp --tools=agent,graph
   tui                Launch interactive terminal UI
   search <query>     Search memories [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]
   save <title> <msg> Save a memory  [--type TYPE] [--project PROJECT] [--scope SCOPE]
@@ -1377,7 +1377,7 @@ MCP Configuration (add to your agent's config):
       "engram": {
         "type": "stdio",
         "command": "engram",
-        "args": ["mcp", "--tools=agent"]
+        "args": ["mcp", "--tools=agent,graph"]
       }
     }
   }

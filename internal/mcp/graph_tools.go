@@ -24,8 +24,8 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
-// registerGraphTools adds the five graph tools to the MCP server.
-// Called from registerTools() in mcp.go — all five are in the "agent" profile.
+// registerGraphTools adds the six graph tools to the MCP server.
+// Called from registerTools() in mcp.go — all six are in the "graph" profile.
 func registerGraphTools(srv *mcpserver.MCPServer, s *store.Store, allowlist map[string]bool) {
 	// ─── mem_graph_search ────────────────────────────────────────────────
 	if shouldRegister("mem_graph_search", allowlist) {
