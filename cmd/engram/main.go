@@ -9,13 +9,18 @@
 //	engram context        Show recent context
 //	engram stats          Show memory stats
 //	engram graph          Explore knowledge graph (entities, relations, traverse)
+//	engram cloud serve    Start Mneme cloud server with dashboard
 package main
 
 import (
 	"bufio"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -24,7 +29,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
+	clouddashboard "github.com/Edcko/Mneme/internal/cloud/dashboard"
+	cloudserver "github.com/Edcko/Mneme/internal/cloud/server"
+	cloudstore "github.com/Edcko/Mneme/internal/cloud/store"
 	"github.com/Edcko/Mneme/internal/mcp"
 	"github.com/Edcko/Mneme/internal/project"
 	"github.com/Edcko/Mneme/internal/server"
@@ -118,6 +127,21 @@ var (
 
 	stdinScanner = func() *bufio.Scanner { return bufio.NewScanner(os.Stdin) }
 	userHomeDir  = os.UserHomeDir
+
+	// Cloud command seams — injectable for testing.
+	cloudStoreNew = func(cfg cloudstore.PGConfig) (cloudstore.CloudStore, error) {
+		return cloudstore.NewPGStore(cfg)
+	}
+	cloudServerNew       = cloudserver.New
+	cloudDashboardNew    = clouddashboard.New
+	runCloudServer       = func(srv *http.Server) error { return srv.ListenAndServe() }
+	generateRandomSecret = func() string {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return ""
+		}
+		return hex.EncodeToString(b)
+	}
 )
 
 func main() {
@@ -181,6 +205,8 @@ func main() {
 		cmdGraph(cfg)
 	case "projects":
 		cmdProjects(cfg)
+	case "cloud":
+		cmdCloud()
 	case "setup":
 		cmdSetup()
 	case "version", "--version", "-v":
@@ -1716,6 +1742,111 @@ func printPostInstall(agent string) {
 	}
 }
 
+// ─── Cloud commands ─────────────────────────────────────────────────────────
+
+func cmdCloud() {
+	subCmd := "serve"
+	if len(os.Args) > 2 {
+		subCmd = os.Args[2]
+	}
+	switch subCmd {
+	case "serve":
+		cmdCloudServe()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown cloud subcommand: %s\n", subCmd)
+		fmt.Fprintln(os.Stderr, "usage: engram cloud serve [--port PORT] [--dsn DSN] [--secret SECRET]")
+		exitFunc(1)
+	}
+}
+
+func cmdCloudServe() {
+	port := 7438
+	dsn := ""
+	secret := ""
+
+	for i := 3; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--port":
+			if i+1 < len(os.Args) {
+				if n, err := strconv.Atoi(os.Args[i+1]); err == nil {
+					port = n
+				}
+				i++
+			}
+		case "--dsn":
+			if i+1 < len(os.Args) {
+				dsn = os.Args[i+1]
+				i++
+			}
+		case "--secret":
+			if i+1 < len(os.Args) {
+				secret = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
+	if dsn == "" {
+		fmt.Fprintln(os.Stderr, "error: --dsn is required")
+		fmt.Fprintln(os.Stderr, "usage: engram cloud serve [--port PORT] --dsn DSN [--secret SECRET]")
+		exitFunc(1)
+	}
+
+	if secret == "" {
+		secret = generateRandomSecret()
+		if secret == "" {
+			fatal(fmt.Errorf("failed to generate random secret"))
+		}
+		log.Println("[cloud] auto-generated JWT secret (use --secret for persistent sessions)")
+	}
+
+	pgStore, err := cloudStoreNew(cloudstore.PGConfig{DSN: dsn})
+	if err != nil {
+		fatal(fmt.Errorf("cloud store: %w", err))
+	}
+	defer pgStore.Close()
+
+	srv, err := cloudServerNew(cloudserver.Config{
+		Store:     pgStore,
+		JWTSecret: secret,
+	})
+	if err != nil {
+		fatal(fmt.Errorf("cloud server: %w", err))
+	}
+
+	dash := cloudDashboardNew(pgStore, srv.AuthManager())
+
+	// Compose root mux: "/" → server handler, "/dashboard/" → dashboard
+	rootMux := http.NewServeMux()
+	rootMux.Handle("/", srv.Handler())
+	rootMux.Handle("/dashboard/", dash)
+
+	httpSrv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: rootMux,
+	}
+
+	// Graceful shutdown on SIGINT/SIGTERM.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		log.Println("[cloud] shutting down...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(ctx); err != nil {
+			log.Printf("[cloud] shutdown error: %v", err)
+		}
+	}()
+
+	log.Printf("[cloud] Mneme cloud server listening on :%d", port)
+	log.Printf("[cloud] Dashboard at http://localhost:%d/dashboard/", port)
+	if err := runCloudServer(httpSrv); err != nil && err != http.ErrServerClosed {
+		fatal(fmt.Errorf("cloud server: %w", err))
+	}
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 func printUsage() {
@@ -1752,12 +1883,17 @@ Commands:
   graph traverse <id>
                      BFS graph traversal from entity [--depth N] [--project PROJECT]
   graph communities  List communities (clusters of connected entities) [--project PROJECT]
-  setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
-  sync               Export new memories as compressed chunk to .engram/
-                       --import   Import new chunks from .engram/ into local DB
-                       --status   Show sync status (local vs remote chunks)
-                       --project  Filter export to a specific project
-                       --all      Export ALL projects (ignore directory-based filter)
+   setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
+   sync               Export new memories as compressed chunk to .engram/
+                        --import   Import new chunks from .engram/ into local DB
+                        --status   Show sync status (local vs remote chunks)
+                        --project  Filter export to a specific project
+                        --all      Export ALL projects (ignore directory-based filter)
+   cloud serve [--port PORT] --dsn DSN [--secret SECRET]
+                      Start Mneme cloud server with dashboard
+                        --port    HTTP port (default: 7438)
+                        --dsn     PostgreSQL connection string (required)
+                        --secret  JWT signing secret (auto-generated if omitted)
 
   version            Print version
   help               Show this help

@@ -5,12 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	clouddashboard "github.com/Edcko/Mneme/internal/cloud/dashboard"
+	cloudserver "github.com/Edcko/Mneme/internal/cloud/server"
+	cloudstore "github.com/Edcko/Mneme/internal/cloud/store"
 	"github.com/Edcko/Mneme/internal/mcp"
 	engramsrv "github.com/Edcko/Mneme/internal/server"
 	"github.com/Edcko/Mneme/internal/setup"
@@ -105,6 +109,11 @@ func stubRuntimeHooks(t *testing.T) {
 	oldGraphGetRelations := graphGetRelations
 	oldGraphBFS := graphBFS
 	oldGraphGetCommunities := graphGetCommunities
+	oldCloudStoreNew := cloudStoreNew
+	oldCloudServerNew := cloudServerNew
+	oldCloudDashboardNew := cloudDashboardNew
+	oldRunCloudServer := runCloudServer
+	oldGenerateRandomSecret := generateRandomSecret
 
 	storeNew = store.New
 	newHTTPServer = func(s *store.Store, _ int) *engramsrv.Server { return engramsrv.New(s, 0) }
@@ -163,6 +172,15 @@ func stubRuntimeHooks(t *testing.T) {
 	graphGetCommunities = func(s *store.Store, project string, limit int) ([]store.Community, error) {
 		return s.GetCommunities(project, limit)
 	}
+	cloudStoreNew = func(cfg cloudstore.PGConfig) (cloudstore.CloudStore, error) {
+		return nil, nil
+	}
+	cloudServerNew = func(cfg cloudserver.Config) (*cloudserver.Server, error) {
+		return nil, nil
+	}
+	cloudDashboardNew = clouddashboard.New // use real dashboard construction
+	runCloudServer = func(srv *http.Server) error { return nil }
+	generateRandomSecret = func() string { return "test-secret-value" }
 
 	t.Cleanup(func() {
 		storeNew = oldStoreNew
@@ -194,6 +212,11 @@ func stubRuntimeHooks(t *testing.T) {
 		graphGetRelations = oldGraphGetRelations
 		graphBFS = oldGraphBFS
 		graphGetCommunities = oldGraphGetCommunities
+		cloudStoreNew = oldCloudStoreNew
+		cloudServerNew = oldCloudServerNew
+		cloudDashboardNew = oldCloudDashboardNew
+		runCloudServer = oldRunCloudServer
+		generateRandomSecret = oldGenerateRandomSecret
 	})
 }
 

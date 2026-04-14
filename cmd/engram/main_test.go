@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	cloudserver "github.com/Edcko/Mneme/internal/cloud/server"
+	cloudstore "github.com/Edcko/Mneme/internal/cloud/store"
 	"github.com/Edcko/Mneme/internal/mcp"
 	"github.com/Edcko/Mneme/internal/store"
 	versioncheck "github.com/Edcko/Mneme/internal/version"
@@ -1316,5 +1319,239 @@ func TestMainDispatchGraph(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "No entities found") && !strings.Contains(stdout, "Entities") {
 		t.Fatalf("unexpected graph entities output: %q", stdout)
+	}
+}
+
+// ─── Cloud command tests ─────────────────────────────────────────────────────
+
+func TestGenerateRandomSecret(t *testing.T) {
+	secret := generateRandomSecret()
+	if secret == "" {
+		t.Fatalf("expected non-empty secret")
+	}
+	if len(secret) != 64 { // 32 bytes → 64 hex chars
+		t.Fatalf("expected 64-char hex secret, got %d chars", len(secret))
+	}
+
+	// Should produce different secrets on each call
+	secret2 := generateRandomSecret()
+	if secret == secret2 {
+		t.Fatalf("expected different secrets on successive calls")
+	}
+}
+
+func TestCmdCloudRoutesSubcommands(t *testing.T) {
+	stubExitWithPanic(t)
+
+	// Stub cloud seams with a real TestStore-backed server.
+	cloudStoreNew = func(cfg cloudstore.PGConfig) (cloudstore.CloudStore, error) {
+		return cloudstore.NewTestStore()
+	}
+	cloudServerNew = func(cfg cloudserver.Config) (*cloudserver.Server, error) {
+		return cloudserver.New(cfg)
+	}
+	runCloudServer = func(srv *http.Server) error { return nil }
+
+	withArgs(t, "engram", "cloud", "serve", "--dsn", "postgres://test")
+	_, _, recovered := captureOutputAndRecover(t, func() { cmdCloud() })
+	if recovered != nil {
+		t.Fatalf("cloud serve should succeed with stubs, got panic=%v", recovered)
+	}
+}
+
+func TestCmdCloudUnknownSubcommand(t *testing.T) {
+	stubExitWithPanic(t)
+
+	withArgs(t, "engram", "cloud", "nonexistent")
+	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdCloud() })
+	if _, ok := recovered.(exitCode); !ok {
+		t.Fatalf("expected exit panic, got %v", recovered)
+	}
+	if !strings.Contains(stderr, "unknown cloud subcommand") {
+		t.Fatalf("expected unknown subcommand error, got: %q", stderr)
+	}
+}
+
+func TestCmdCloudServeMissingDSN(t *testing.T) {
+	stubExitWithPanic(t)
+
+	withArgs(t, "engram", "cloud", "serve")
+	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdCloudServe() })
+	if _, ok := recovered.(exitCode); !ok {
+		t.Fatalf("expected exit panic for missing DSN, got %v", recovered)
+	}
+	if !strings.Contains(stderr, "--dsn is required") {
+		t.Fatalf("expected DSN required error, got: %q", stderr)
+	}
+}
+
+func TestCmdCloudServeStoreFailure(t *testing.T) {
+	stubExitWithPanic(t)
+
+	cloudStoreNew = func(cfg cloudstore.PGConfig) (cloudstore.CloudStore, error) {
+		return nil, os.ErrPermission
+	}
+
+	withArgs(t, "engram", "cloud", "serve", "--dsn", "postgres://fail")
+	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdCloudServe() })
+	if _, ok := recovered.(exitCode); !ok {
+		t.Fatalf("expected exit panic for store failure, got %v", recovered)
+	}
+	if !strings.Contains(stderr, "cloud store") {
+		t.Fatalf("expected cloud store error, got: %q", stderr)
+	}
+}
+
+func TestCmdCloudServeServerFailure(t *testing.T) {
+	stubExitWithPanic(t)
+
+	cloudStoreNew = func(cfg cloudstore.PGConfig) (cloudstore.CloudStore, error) {
+		return cloudstore.NewTestStore()
+	}
+	cloudServerNew = func(cfg cloudserver.Config) (*cloudserver.Server, error) {
+		return nil, os.ErrPermission
+	}
+
+	withArgs(t, "engram", "cloud", "serve", "--dsn", "postgres://test")
+	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdCloudServe() })
+	if _, ok := recovered.(exitCode); !ok {
+		t.Fatalf("expected exit panic for server failure, got %v", recovered)
+	}
+	if !strings.Contains(stderr, "cloud server") {
+		t.Fatalf("expected cloud server error, got: %q", stderr)
+	}
+}
+
+func TestCmdCloudServeParsesFlags(t *testing.T) {
+	stubExitWithPanic(t)
+
+	var capturedAddr, capturedDSN, capturedSecret string
+	cloudStoreNew = func(cfg cloudstore.PGConfig) (cloudstore.CloudStore, error) {
+		capturedDSN = cfg.DSN
+		ts, _ := cloudstore.NewTestStore()
+		return ts, nil
+	}
+	cloudServerNew = func(cfg cloudserver.Config) (*cloudserver.Server, error) {
+		capturedSecret = cfg.JWTSecret
+		return cloudserver.New(cfg)
+	}
+	runCloudServer = func(srv *http.Server) error {
+		capturedAddr = srv.Addr
+		return nil
+	}
+
+	withArgs(t, "engram", "cloud", "serve", "--port", "9999", "--dsn", "postgres://custom", "--secret", "my-secret")
+	_, _, recovered := captureOutputAndRecover(t, func() { cmdCloudServe() })
+	if recovered != nil {
+		t.Fatalf("expected clean run, got panic=%v", recovered)
+	}
+	if capturedDSN != "postgres://custom" {
+		t.Fatalf("expected DSN=postgres://custom, got %q", capturedDSN)
+	}
+	if capturedSecret != "my-secret" {
+		t.Fatalf("expected secret=my-secret, got %q", capturedSecret)
+	}
+	portStr := capturedAddr[1:] // strip ":"
+	if portStr != "9999" {
+		t.Fatalf("expected port=9999, got %q", portStr)
+	}
+}
+
+func TestCmdCloudServeAutoGeneratesSecret(t *testing.T) {
+	stubExitWithPanic(t)
+
+	var capturedSecret string
+	cloudStoreNew = func(cfg cloudstore.PGConfig) (cloudstore.CloudStore, error) {
+		ts, _ := cloudstore.NewTestStore()
+		return ts, nil
+	}
+	cloudServerNew = func(cfg cloudserver.Config) (*cloudserver.Server, error) {
+		capturedSecret = cfg.JWTSecret
+		return cloudserver.New(cfg)
+	}
+	runCloudServer = func(srv *http.Server) error { return nil }
+
+	withArgs(t, "engram", "cloud", "serve", "--dsn", "postgres://test")
+	_, _, recovered := captureOutputAndRecover(t, func() { cmdCloudServe() })
+	if recovered != nil {
+		t.Fatalf("expected clean run, got panic=%v", recovered)
+	}
+	if capturedSecret == "" {
+		t.Fatalf("expected auto-generated secret, got empty")
+	}
+	// Verify the secret is a 64-char hex string (32 bytes)
+	if len(capturedSecret) != 64 {
+		t.Fatalf("expected 64-char auto-generated secret, got %d chars", len(capturedSecret))
+	}
+}
+
+func TestCmdCloudServeRunCloudServerError(t *testing.T) {
+	stubExitWithPanic(t)
+
+	cloudStoreNew = func(cfg cloudstore.PGConfig) (cloudstore.CloudStore, error) {
+		ts, _ := cloudstore.NewTestStore()
+		return ts, nil
+	}
+	cloudServerNew = func(cfg cloudserver.Config) (*cloudserver.Server, error) {
+		return cloudserver.New(cfg)
+	}
+	runCloudServer = func(srv *http.Server) error {
+		return os.ErrClosed
+	}
+
+	withArgs(t, "engram", "cloud", "serve", "--dsn", "postgres://test", "--secret", "s")
+	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdCloudServe() })
+	if _, ok := recovered.(exitCode); !ok {
+		t.Fatalf("expected exit panic for server error, got %v", recovered)
+	}
+	if !strings.Contains(stderr, "cloud server") {
+		t.Fatalf("expected cloud server error, got: %q", stderr)
+	}
+}
+
+func TestCmdCloudServeDefaultPort(t *testing.T) {
+	stubExitWithPanic(t)
+
+	var capturedAddr string
+	cloudStoreNew = func(cfg cloudstore.PGConfig) (cloudstore.CloudStore, error) {
+		ts, _ := cloudstore.NewTestStore()
+		return ts, nil
+	}
+	cloudServerNew = func(cfg cloudserver.Config) (*cloudserver.Server, error) {
+		return cloudserver.New(cfg)
+	}
+	runCloudServer = func(srv *http.Server) error {
+		capturedAddr = srv.Addr
+		return nil
+	}
+
+	withArgs(t, "engram", "cloud", "serve", "--dsn", "postgres://test", "--secret", "s")
+	_, _, recovered := captureOutputAndRecover(t, func() { cmdCloudServe() })
+	if recovered != nil {
+		t.Fatalf("expected clean run, got panic=%v", recovered)
+	}
+	if capturedAddr != ":7438" {
+		t.Fatalf("expected default addr :7438, got %q", capturedAddr)
+	}
+}
+
+func TestMainDispatchCloud(t *testing.T) {
+	stubRuntimeHooks(t)
+	stubExitWithPanic(t)
+	t.Setenv("ENGRAM_DATA_DIR", t.TempDir())
+
+	cloudStoreNew = func(cfg cloudstore.PGConfig) (cloudstore.CloudStore, error) {
+		ts, _ := cloudstore.NewTestStore()
+		return ts, nil
+	}
+	cloudServerNew = func(cfg cloudserver.Config) (*cloudserver.Server, error) {
+		return cloudserver.New(cfg)
+	}
+	runCloudServer = func(srv *http.Server) error { return nil }
+
+	withArgs(t, "engram", "cloud", "serve", "--dsn", "postgres://test")
+	_, stderr, recovered := captureOutputAndRecover(t, func() { main() })
+	if recovered != nil {
+		t.Fatalf("cloud dispatch failed: panic=%v stderr=%q", recovered, stderr)
 	}
 }
