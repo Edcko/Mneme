@@ -1,0 +1,42 @@
+services:
+  mneme-cloud:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${MNEME_PORT:-7438}:7438"
+    environment:
+      MNEME_PORT: "7438"
+      MNEME_DSN: "postgres://mneme:${PG_PASSWORD:-mneme}@postgres:5432/mneme?sslmode=disable"
+      MNEME_SECRET: "${MNEME_SECRET}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mneme-internal
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: mneme
+      POSTGRES_PASSWORD: "${PG_PASSWORD:-mneme}"
+      POSTGRES_DB: mneme
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mneme"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - mneme-internal
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
+networks:
+  mneme-internal:
+    driver: bridge

@@ -1,0 +1,38 @@
+[Unit]
+Description=Mneme Cloud — Persistent memory sync server
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+
+User=engram
+Group=engram
+WorkingDirectory=/opt/mneme
+
+# Secrets come from an env file — never hardcoded in the unit.
+EnvironmentFile=/etc/mneme/cloud.env
+
+ExecStart=/usr/local/bin/engram cloud serve \
+    --port ${MNEME_PORT} \
+    --dsn ${MNEME_DSN} \
+    --secret ${MNEME_SECRET}
+
+# Restart on crash, but not too aggressively.
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/mneme
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mneme-cloud
+
+[Install]
+WantedBy=multi-user.target
