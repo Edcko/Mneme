@@ -200,3 +200,14 @@ var (
 			PaddingLeft(2).
 			MarginTop(1)
 )
+
+// ─── Graph Styles ────────────────────────────────────────────────────────────
+
+var (
+	entityTypeBadgeStyle = lipgloss.NewStyle().
+				Foreground(colorGreen).
+				Bold(true)
+
+	entityNameStyle = lipgloss.NewStyle().
+			Foreground(colorPeach)
+)

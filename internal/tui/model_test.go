@@ -249,3 +249,44 @@ func TestInstallAgentCommand(t *testing.T) {
 		}
 	})
 }
+
+func TestGraphDataLoadingCommands(t *testing.T) {
+	fx := newTestFixture(t)
+
+	t.Run("loadEntities", func(t *testing.T) {
+		msg := loadEntities(fx.store)()
+		loaded, ok := msg.(entitiesLoadedMsg)
+		if !ok {
+			t.Fatalf("message type = %T", msg)
+		}
+		if loaded.err != nil {
+			t.Fatalf("unexpected error: %v", loaded.err)
+		}
+	})
+
+	t.Run("loadEntityDetail", func(t *testing.T) {
+		// Test with non-existent entity (returns error)
+		msg := loadEntityDetail(fx.store, 99999)()
+		loaded, ok := msg.(entityDetailLoadedMsg)
+		if !ok {
+			t.Fatalf("message type = %T", msg)
+		}
+		if loaded.err == nil {
+			t.Fatal("expected error for non-existent entity")
+		}
+	})
+
+	t.Run("searchGraphEntities", func(t *testing.T) {
+		msg := searchGraphEntities(fx.store, "test")()
+		loaded, ok := msg.(graphSearchResultsMsg)
+		if !ok {
+			t.Fatalf("message type = %T", msg)
+		}
+		if loaded.err != nil {
+			t.Fatalf("unexpected error: %v", loaded.err)
+		}
+		if loaded.query != "test" {
+			t.Fatalf("query = %q, want %q", loaded.query, "test")
+		}
+	})
+}

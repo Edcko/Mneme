@@ -34,6 +34,9 @@ const (
 	ScreenSessions
 	ScreenSessionDetail
 	ScreenSetup
+	ScreenGraph
+	ScreenGraphDetail
+	ScreenGraphSearch
 )
 
 // ─── Custom Messages ─────────────────────────────────────────────────────────
@@ -76,6 +79,23 @@ type recentSessionsMsg struct {
 type sessionObservationsMsg struct {
 	observations []store.Observation
 	err          error
+}
+
+type entitiesLoadedMsg struct {
+	entities []store.Entity
+	err      error
+}
+
+type entityDetailLoadedMsg struct {
+	entity    *store.Entity
+	relations []store.Relation
+	err       error
+}
+
+type graphSearchResultsMsg struct {
+	entities []store.Entity
+	query    string
+	err      error
 }
 
 type setupInstallMsg struct {
@@ -137,6 +157,18 @@ type Model struct {
 	SetupAllowlistApplied bool   // true = allowlist was added successfully
 	SetupAllowlistError   string // error message if allowlist injection failed
 	SetupSpinner          spinner.Model
+
+	// Graph — entity list
+	GraphEntities []store.Entity
+
+	// Graph — entity detail
+	SelectedEntity     *store.Entity
+	EntityRelations    []store.Relation
+	EntityDetailScroll int
+
+	// Graph — search
+	GraphSearchInput textinput.Model
+	GraphSearchQuery string
 }
 
 // New creates a new TUI model connected to the given store.
@@ -146,16 +178,22 @@ func New(s *store.Store, version string) Model {
 	ti.CharLimit = 256
 	ti.Width = 60
 
+	gsi := textinput.New()
+	gsi.Placeholder = "Search entities..."
+	gsi.CharLimit = 256
+	gsi.Width = 60
+
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(colorLavender)
 
 	return Model{
-		store:        s,
-		Version:      version,
-		Screen:       ScreenDashboard,
-		SearchInput:  ti,
-		SetupSpinner: sp,
+		store:            s,
+		Version:          version,
+		Screen:           ScreenDashboard,
+		SearchInput:      ti,
+		GraphSearchInput: gsi,
+		SetupSpinner:     sp,
 	}
 }
 
@@ -234,3 +272,31 @@ func installAgent(agentName string) tea.Cmd {
 
 var installAgentFn = setup.Install
 var addClaudeCodeAllowlistFn = setup.AddClaudeCodeAllowlist
+
+func loadEntities(s *store.Store) tea.Cmd {
+	return func() tea.Msg {
+		entities, err := s.ListEntities("", "", 100)
+		return entitiesLoadedMsg{entities: entities, err: err}
+	}
+}
+
+func loadEntityDetail(s *store.Store, id int64) tea.Cmd {
+	return func() tea.Msg {
+		entity, err := s.GetEntityByID(id)
+		if err != nil {
+			return entityDetailLoadedMsg{err: err}
+		}
+		relations, err := s.GetEntityRelations(id, true)
+		if err != nil {
+			return entityDetailLoadedMsg{err: err}
+		}
+		return entityDetailLoadedMsg{entity: entity, relations: relations, err: nil}
+	}
+}
+
+func searchGraphEntities(s *store.Store, query string) tea.Cmd {
+	return func() tea.Msg {
+		entities, err := s.SearchEntities(query, "", "", 50)
+		return graphSearchResultsMsg{entities: entities, query: query, err: err}
+	}
+}

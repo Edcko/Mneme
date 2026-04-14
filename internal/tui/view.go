@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Edcko/Mneme/internal/store"
 	"github.com/Edcko/Mneme/internal/version"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -79,6 +80,12 @@ func (m Model) View() string {
 		content = m.viewSessionDetail()
 	case ScreenSetup:
 		content = m.viewSetup()
+	case ScreenGraph:
+		content = m.viewGraph()
+	case ScreenGraphDetail:
+		content = m.viewGraphDetail()
+	case ScreenGraphSearch:
+		content = m.viewGraphSearch()
 	default:
 		content = "Unknown screen"
 	}
@@ -677,6 +684,174 @@ func (m Model) viewSetup() string {
 	return b.String()
 }
 
+// ─── Graph — Entity List ─────────────────────────────────────────────────────
+
+func (m Model) viewGraph() string {
+	var b strings.Builder
+
+	count := len(m.GraphEntities)
+	header := "  Knowledge Graph"
+	if m.GraphSearchQuery != "" {
+		header = fmt.Sprintf("  Graph Search: %q — %d result", m.GraphSearchQuery, count)
+		if count != 1 {
+			header += "s"
+		}
+	} else {
+		header = fmt.Sprintf("  Knowledge Graph — %d %s", count, pluralize(count, "entity", "entities"))
+	}
+	b.WriteString(headerStyle.Render(header))
+	b.WriteString("\n")
+
+	if count == 0 {
+		if m.GraphSearchQuery != "" {
+			b.WriteString(noResultsStyle.Render("No entities found. Try a different query."))
+		} else {
+			b.WriteString(noResultsStyle.Render("No entities yet. They appear as you save observations."))
+		}
+		b.WriteString("\n\n")
+		b.WriteString(helpStyle.Render("  / search • esc back"))
+		return b.String()
+	}
+
+	visibleItems := m.Height - 8
+	if visibleItems < 3 {
+		visibleItems = 3
+	}
+
+	end := m.Scroll + visibleItems
+	if end > count {
+		end = count
+	}
+
+	for i := m.Scroll; i < end; i++ {
+		e := m.GraphEntities[i]
+		b.WriteString(m.renderEntityListItem(i, e))
+	}
+
+	if count > visibleItems {
+		b.WriteString(fmt.Sprintf("\n  %s",
+			timestampStyle.Render(fmt.Sprintf("showing %d-%d of %d", m.Scroll+1, end, count))))
+	}
+
+	b.WriteString(helpStyle.Render("\n  j/k navigate • enter detail • / search • esc back"))
+
+	return b.String()
+}
+
+// ─── Graph — Entity Detail ───────────────────────────────────────────────────
+
+func (m Model) viewGraphDetail() string {
+	var b strings.Builder
+
+	if m.SelectedEntity == nil {
+		b.WriteString(headerStyle.Render("  Entity Detail"))
+		b.WriteString("\n")
+		b.WriteString(noResultsStyle.Render("Loading..."))
+		return b.String()
+	}
+
+	e := m.SelectedEntity
+
+	b.WriteString(headerStyle.Render(fmt.Sprintf("  Entity #%d", e.ID)))
+	b.WriteString("\n")
+
+	b.WriteString(fmt.Sprintf("%s %s\n",
+		detailLabelStyle.Render("Name:"),
+		detailValueStyle.Bold(true).Render(e.Name)))
+
+	b.WriteString(fmt.Sprintf("%s %s\n",
+		detailLabelStyle.Render("Type:"),
+		entityTypeBadgeStyle.Render(string(e.EntityType))))
+
+	if e.Summary != nil {
+		b.WriteString(fmt.Sprintf("%s %s\n",
+			detailLabelStyle.Render("Summary:"),
+			detailValueStyle.Render(*e.Summary)))
+	}
+
+	if e.Project != nil {
+		b.WriteString(fmt.Sprintf("%s %s\n",
+			detailLabelStyle.Render("Project:"),
+			projectStyle.Render(*e.Project)))
+	}
+
+	b.WriteString(fmt.Sprintf("%s %s\n",
+		detailLabelStyle.Render("Created:"),
+		timestampStyle.Render(localTime(e.CreatedAt))))
+
+	// Relations section
+	relCount := len(m.EntityRelations)
+	b.WriteString("\n")
+	b.WriteString(sectionHeadingStyle.Render(fmt.Sprintf("  Relations (%d)", relCount)))
+	b.WriteString("\n")
+
+	if relCount == 0 {
+		b.WriteString(noResultsStyle.Render("No active relations for this entity."))
+		b.WriteString("\n")
+	} else {
+		maxRels := m.Height - 14
+		if maxRels < 3 {
+			maxRels = 3
+		}
+
+		maxScroll := relCount - maxRels
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if m.EntityDetailScroll > maxScroll {
+			m.EntityDetailScroll = maxScroll
+		}
+
+		end := m.EntityDetailScroll + maxRels
+		if end > relCount {
+			end = relCount
+		}
+
+		for i := m.EntityDetailScroll; i < end; i++ {
+			r := m.EntityRelations[i]
+			isSource := r.SourceID == e.ID
+			var arrow, target string
+			if isSource {
+				arrow = "→"
+				target = r.TargetName
+			} else {
+				arrow = "←"
+				target = r.SourceName
+			}
+			b.WriteString(fmt.Sprintf("  %s %s %s %s\n",
+				timelineConnectorStyle.Render("│"),
+				detailValueStyle.Bold(true).Render(arrow),
+				typeBadgeStyle.Render(truncateStr(r.Relation, 20)),
+				entityNameStyle.Render(target)))
+		}
+
+		if relCount > maxRels {
+			b.WriteString(fmt.Sprintf("\n  %s",
+				timestampStyle.Render(fmt.Sprintf("showing %d-%d of %d relations", m.EntityDetailScroll+1, end, relCount))))
+		}
+	}
+
+	b.WriteString(helpStyle.Render("\n  j/k scroll • esc back"))
+
+	return b.String()
+}
+
+// ─── Graph — Search ──────────────────────────────────────────────────────────
+
+func (m Model) viewGraphSearch() string {
+	var b strings.Builder
+
+	b.WriteString(headerStyle.Render("  Search Knowledge Graph"))
+	b.WriteString("\n\n")
+
+	b.WriteString(searchInputStyle.Render(m.GraphSearchInput.View()))
+	b.WriteString("\n\n")
+
+	b.WriteString(helpStyle.Render("  Type a query and press enter • esc go back"))
+
+	return b.String()
+}
+
 // ─── Shared Renderers ────────────────────────────────────────────────────────
 
 func (m Model) renderObservationListItem(index int, id int64, obsType, title, content, createdAt string, project *string) string {
@@ -733,4 +908,41 @@ func truncateStr(s string, max int) string {
 		return s
 	}
 	return string(runes[:max]) + "..."
+}
+
+func pluralize(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
+}
+
+func (m Model) renderEntityListItem(index int, e store.Entity) string {
+	cursor := "  "
+	style := listItemStyle
+	if index == m.Cursor {
+		cursor = "▸ "
+		style = listSelectedStyle
+	}
+
+	proj := ""
+	if e.Project != nil {
+		proj = "  " + projectStyle.Render(*e.Project)
+	}
+
+	summary := ""
+	if e.Summary != nil {
+		summary = "  " + contentPreviewStyle.Render(truncateStr(*e.Summary, 50))
+	}
+
+	line := fmt.Sprintf("%s%s %s %s%s%s  %s\n",
+		cursor,
+		idStyle.Render(fmt.Sprintf("#%-5d", e.ID)),
+		entityTypeBadgeStyle.Render(fmt.Sprintf("[%-10s]", e.EntityType)),
+		style.Render(truncateStr(e.Name, 40)),
+		proj,
+		summary,
+		timestampStyle.Render(localTime(e.UpdatedAt)))
+
+	return line
 }

@@ -322,6 +322,8 @@ func TestViewRouterCoversAllScreens(t *testing.T) {
 	m.SelectedSessionIdx = 0
 	m.SessionObservations = []store.Observation{{ID: 1, Type: "bugfix", Title: "t", Content: "c", CreatedAt: "now"}}
 	m.SetupAgents = []setup.Agent{{Name: "opencode", Description: "OpenCode", InstallDir: "/tmp"}}
+	m.GraphEntities = []store.Entity{{ID: 1, Name: "React", EntityType: store.EntityTypeTool, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"}}
+	m.SelectedEntity = &store.Entity{ID: 1, Name: "React", EntityType: store.EntityTypeTool, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"}
 	m.Height = 20
 
 	tests := []struct {
@@ -337,6 +339,9 @@ func TestViewRouterCoversAllScreens(t *testing.T) {
 		{screen: ScreenSessions, want: "Sessions"},
 		{screen: ScreenSessionDetail, want: "Session:"},
 		{screen: ScreenSetup, want: "Setup"},
+		{screen: ScreenGraph, want: "Knowledge Graph"},
+		{screen: ScreenGraphDetail, want: "Entity #"},
+		{screen: ScreenGraphSearch, want: "Search Knowledge Graph"},
 	}
 
 	for _, tt := range tests {
@@ -435,4 +440,195 @@ func TestViewSetupAllowlistPrompt(t *testing.T) {
 			t.Fatal("should show error message")
 		}
 	})
+}
+
+// ─── Graph View Tests ─────────────────────────────────────────────────────────
+
+func TestViewGraphEntityList(t *testing.T) {
+	m := New(nil, "")
+	m.Height = 14
+
+	t.Run("empty state", func(t *testing.T) {
+		m.GraphEntities = nil
+		m.GraphSearchQuery = ""
+		out := m.viewGraph()
+		if !strings.Contains(out, "Knowledge Graph") {
+			t.Fatal("graph view should render title")
+		}
+		if !strings.Contains(out, "No entities yet") {
+			t.Fatal("graph view should render empty state")
+		}
+	})
+
+	t.Run("empty search results", func(t *testing.T) {
+		m.GraphEntities = nil
+		m.GraphSearchQuery = "nonexistent"
+		out := m.viewGraph()
+		if !strings.Contains(out, "No entities found") {
+			t.Fatal("graph search should render no results state")
+		}
+	})
+
+	t.Run("entity list with items", func(t *testing.T) {
+		m.GraphEntities = []store.Entity{
+			{ID: 1, Name: "React", EntityType: store.EntityTypeTool, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+			{ID: 2, Name: "TypeScript", EntityType: store.EntityTypeLanguage, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+		}
+		m.GraphSearchQuery = ""
+		out := m.viewGraph()
+		if !strings.Contains(out, "React") || !strings.Contains(out, "TypeScript") {
+			t.Fatal("graph view should list entity names")
+		}
+	})
+
+	t.Run("search header", func(t *testing.T) {
+		m.GraphSearchQuery = "react"
+		m.GraphEntities = []store.Entity{
+			{ID: 1, Name: "React", EntityType: store.EntityTypeTool, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+		}
+		out := m.viewGraph()
+		if !strings.Contains(out, `Graph Search: "react"`) {
+			t.Fatal("graph search view should show query in header")
+		}
+	})
+
+	t.Run("scroll indicator", func(t *testing.T) {
+		m.Height = 12 // visibleItems = 12-8 = 4
+		m.GraphSearchQuery = ""
+		m.GraphEntities = []store.Entity{
+			{ID: 1, Name: "A", EntityType: store.EntityTypeConcept, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+			{ID: 2, Name: "B", EntityType: store.EntityTypeConcept, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+			{ID: 3, Name: "C", EntityType: store.EntityTypeConcept, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+			{ID: 4, Name: "D", EntityType: store.EntityTypeConcept, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+			{ID: 5, Name: "E", EntityType: store.EntityTypeConcept, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+			{ID: 6, Name: "F", EntityType: store.EntityTypeConcept, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+		}
+		out := m.viewGraph()
+		if !strings.Contains(out, "showing") {
+			t.Fatal("graph view should show scroll indicator when items overflow")
+		}
+	})
+}
+
+func TestViewGraphDetail(t *testing.T) {
+	m := New(nil, "")
+	m.Height = 20
+
+	t.Run("loading state", func(t *testing.T) {
+		m.SelectedEntity = nil
+		out := m.viewGraphDetail()
+		if !strings.Contains(out, "Loading") {
+			t.Fatal("graph detail should render loading state when entity is nil")
+		}
+	})
+
+	t.Run("entity detail with metadata", func(t *testing.T) {
+		summary := "A JavaScript library for building UIs"
+		project := "webapp"
+		m.SelectedEntity = &store.Entity{
+			ID:         1,
+			Name:       "React",
+			EntityType: store.EntityTypeTool,
+			Summary:    &summary,
+			Project:    &project,
+			CreatedAt:  "2026-01-01 12:00:00",
+			UpdatedAt:  "2026-01-02 12:00:00",
+		}
+		out := m.viewGraphDetail()
+		if !strings.Contains(out, "Entity #1") {
+			t.Fatal("graph detail should show entity ID")
+		}
+		if !strings.Contains(out, "React") {
+			t.Fatal("graph detail should show entity name")
+		}
+		if !strings.Contains(out, "tool") {
+			t.Fatal("graph detail should show entity type")
+		}
+		if !strings.Contains(out, "JavaScript library") {
+			t.Fatal("graph detail should show summary")
+		}
+		if !strings.Contains(out, "webapp") {
+			t.Fatal("graph detail should show project")
+		}
+	})
+
+	t.Run("entity detail without relations", func(t *testing.T) {
+		m.SelectedEntity = &store.Entity{ID: 2, Name: "Go", EntityType: store.EntityTypeLanguage, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"}
+		m.EntityRelations = nil
+		out := m.viewGraphDetail()
+		if !strings.Contains(out, "Relations (0)") {
+			t.Fatal("graph detail should show zero relations")
+		}
+		if !strings.Contains(out, "No active relations") {
+			t.Fatal("graph detail should show no relations message")
+		}
+	})
+
+	t.Run("entity detail with relations", func(t *testing.T) {
+		m.SelectedEntity = &store.Entity{ID: 1, Name: "React", EntityType: store.EntityTypeTool, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"}
+		m.EntityRelations = []store.Relation{
+			{ID: 1, SourceID: 1, SourceName: "React", Relation: "uses", TargetID: 2, TargetName: "TypeScript"},
+			{ID: 2, SourceID: 3, SourceName: "Alice", Relation: "works_with", TargetID: 1, TargetName: "React"},
+		}
+		out := m.viewGraphDetail()
+		if !strings.Contains(out, "Relations (2)") {
+			t.Fatal("graph detail should show relation count")
+		}
+		if !strings.Contains(out, "TypeScript") || !strings.Contains(out, "Alice") {
+			t.Fatal("graph detail should show related entity names")
+		}
+		if !strings.Contains(out, "→") || !strings.Contains(out, "←") {
+			t.Fatal("graph detail should show directional arrows")
+		}
+	})
+}
+
+func TestViewGraphSearch(t *testing.T) {
+	m := New(nil, "")
+	m.Screen = ScreenGraphSearch
+
+	out := m.viewGraphSearch()
+	if !strings.Contains(out, "Search Knowledge Graph") {
+		t.Fatal("graph search should render title")
+	}
+	if !strings.Contains(out, "Type a query") {
+		t.Fatal("graph search should show help text")
+	}
+}
+
+func TestRenderEntityListItem(t *testing.T) {
+	m := New(nil, "")
+	m.Cursor = 0
+	project := "webapp"
+	summary := "A cool tool"
+
+	e := store.Entity{
+		ID:         42,
+		Name:       "React",
+		EntityType: store.EntityTypeTool,
+		Summary:    &summary,
+		Project:    &project,
+		CreatedAt:  "2026-01-01",
+		UpdatedAt:  "2026-01-01",
+	}
+
+	line := m.renderEntityListItem(0, e)
+	if !strings.Contains(line, "▸") {
+		t.Fatal("selected item should include cursor marker")
+	}
+	if !strings.Contains(line, "React") {
+		t.Fatal("item should include entity name")
+	}
+	if !strings.Contains(line, "webapp") {
+		t.Fatal("item should include project")
+	}
+	if !strings.Contains(line, "cool tool") {
+		t.Fatal("item should include summary preview")
+	}
+
+	// Not selected
+	line = m.renderEntityListItem(1, e)
+	if strings.Contains(line, "▸") {
+		t.Fatal("non-selected item should not include cursor marker")
+	}
 }

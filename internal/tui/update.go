@@ -25,6 +25,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Screen == ScreenSearch && m.SearchInput.Focused() {
 			return m.handleSearchInputKeys(msg)
 		}
+		// If graph search input is focused, let it handle most keys
+		if m.Screen == ScreenGraphSearch && m.GraphSearchInput.Focused() {
+			return m.handleGraphSearchInputKeys(msg)
+		}
 		return m.handleKeyPress(msg.String())
 
 	// ─── Data loaded messages ────────────────────────────────────────────
@@ -125,6 +129,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+
+	case entitiesLoadedMsg:
+		if msg.err != nil {
+			m.ErrorMsg = msg.err.Error()
+			return m, nil
+		}
+		m.GraphEntities = msg.entities
+		return m, nil
+
+	case entityDetailLoadedMsg:
+		if msg.err != nil {
+			m.ErrorMsg = msg.err.Error()
+			return m, nil
+		}
+		m.SelectedEntity = msg.entity
+		m.EntityRelations = msg.relations
+		m.Screen = ScreenGraphDetail
+		m.EntityDetailScroll = 0
+		return m, nil
+
+	case graphSearchResultsMsg:
+		if msg.err != nil {
+			m.ErrorMsg = msg.err.Error()
+			return m, nil
+		}
+		m.GraphEntities = msg.entities
+		m.GraphSearchQuery = msg.query
+		m.Screen = ScreenGraph
+		m.Cursor = 0
+		m.Scroll = 0
+		return m, nil
 	}
 
 	return m, nil
@@ -155,6 +190,12 @@ func (m Model) handleKeyPress(key string) (tea.Model, tea.Cmd) {
 		return m.handleSessionDetailKeys(key)
 	case ScreenSetup:
 		return m.handleSetupKeys(key)
+	case ScreenGraph:
+		return m.handleGraphKeys(key)
+	case ScreenGraphDetail:
+		return m.handleGraphDetailKeys(key)
+	case ScreenGraphSearch:
+		return m.handleGraphSearchKeys(key)
 	}
 	return m, nil
 }
@@ -165,6 +206,7 @@ var dashboardMenuItems = []string{
 	"Search memories",
 	"Recent observations",
 	"Browse sessions",
+	"Knowledge graph",
 	"Setup agent plugin",
 	"Quit",
 }
@@ -215,7 +257,13 @@ func (m Model) handleDashboardSelection() (tea.Model, tea.Cmd) {
 		m.Cursor = 0
 		m.Scroll = 0
 		return m, loadRecentSessions(m.store)
-	case 3: // Setup
+	case 3: // Knowledge graph
+		m.PrevScreen = ScreenDashboard
+		m.Screen = ScreenGraph
+		m.Cursor = 0
+		m.Scroll = 0
+		return m, loadEntities(m.store)
+	case 4: // Setup
 		m.PrevScreen = ScreenDashboard
 		m.Screen = ScreenSetup
 		m.Cursor = 0
@@ -226,7 +274,7 @@ func (m Model) handleDashboardSelection() (tea.Model, tea.Cmd) {
 		m.SetupInstalling = false
 		m.SetupInstallingName = ""
 		return m, nil
-	case 4: // Quit
+	case 5: // Quit
 		return m, tea.Quit
 	}
 	return m, nil
@@ -561,6 +609,105 @@ func (m Model) handleSetupKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// ─── Graph — Entity List ─────────────────────────────────────────────────────
+
+func (m Model) handleGraphKeys(key string) (tea.Model, tea.Cmd) {
+	visibleItems := m.Height - 8
+	if visibleItems < 3 {
+		visibleItems = 3
+	}
+
+	switch key {
+	case "up", "k":
+		if m.Cursor > 0 {
+			m.Cursor--
+			if m.Cursor < m.Scroll {
+				m.Scroll = m.Cursor
+			}
+		}
+	case "down", "j":
+		if m.Cursor < len(m.GraphEntities)-1 {
+			m.Cursor++
+			if m.Cursor >= m.Scroll+visibleItems {
+				m.Scroll = m.Cursor - visibleItems + 1
+			}
+		}
+	case "enter":
+		if len(m.GraphEntities) > 0 && m.Cursor < len(m.GraphEntities) {
+			entityID := m.GraphEntities[m.Cursor].ID
+			m.PrevScreen = ScreenGraph
+			return m, loadEntityDetail(m.store, entityID)
+		}
+	case "/", "s":
+		m.PrevScreen = ScreenGraph
+		m.Screen = ScreenGraphSearch
+		m.GraphSearchInput.SetValue("")
+		m.GraphSearchInput.Focus()
+		return m, nil
+	case "esc", "q":
+		m.Screen = ScreenDashboard
+		m.Cursor = 0
+		m.Scroll = 0
+		return m, loadStats(m.store)
+	}
+	return m, nil
+}
+
+// ─── Graph — Entity Detail ───────────────────────────────────────────────────
+
+func (m Model) handleGraphDetailKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "up", "k":
+		if m.EntityDetailScroll > 0 {
+			m.EntityDetailScroll--
+		}
+	case "down", "j":
+		m.EntityDetailScroll++
+	case "esc", "q":
+		m.Screen = m.PrevScreen
+		m.Cursor = 0
+		m.EntityDetailScroll = 0
+		return m, m.refreshScreen(m.PrevScreen)
+	}
+	return m, nil
+}
+
+// ─── Graph — Search Input ────────────────────────────────────────────────────
+
+func (m Model) handleGraphSearchInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		query := m.GraphSearchInput.Value()
+		if query != "" {
+			m.GraphSearchInput.Blur()
+			return m, searchGraphEntities(m.store, query)
+		}
+		return m, nil
+	case "esc":
+		m.GraphSearchInput.Blur()
+		m.Screen = ScreenGraph
+		m.Cursor = 0
+		return m, loadEntities(m.store)
+	}
+
+	var cmd tea.Cmd
+	m.GraphSearchInput, cmd = m.GraphSearchInput.Update(msg)
+	return m, cmd
+}
+
+func (m Model) handleGraphSearchKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "q":
+		m.Screen = ScreenGraph
+		m.Cursor = 0
+		return m, loadEntities(m.store)
+	case "i", "/":
+		m.GraphSearchInput.Focus()
+		return m, nil
+	}
+	return m, nil
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 // refreshScreen returns the appropriate data-loading Cmd for a given screen.
@@ -573,6 +720,8 @@ func (m Model) refreshScreen(screen Screen) tea.Cmd {
 		return loadRecentObservations(m.store)
 	case ScreenSessions:
 		return loadRecentSessions(m.store)
+	case ScreenGraph:
+		return loadEntities(m.store)
 	default:
 		return nil
 	}

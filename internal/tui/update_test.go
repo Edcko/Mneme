@@ -185,6 +185,14 @@ func TestHandleDashboardAndSearchKeyPaths(t *testing.T) {
 	m.Cursor = 3
 	updatedModel, cmd = m.handleDashboardSelection()
 	updated = updatedModel.(Model)
+	if updated.Screen != ScreenGraph || cmd == nil {
+		t.Fatal("knowledge graph selection should load entities")
+	}
+
+	m = New(fx.store, "")
+	m.Cursor = 4
+	updatedModel, cmd = m.handleDashboardSelection()
+	updated = updatedModel.(Model)
 	if updated.Screen != ScreenSetup || len(updated.SetupAgents) == 0 {
 		t.Fatal("setup selection should initialize setup screen")
 	}
@@ -457,6 +465,9 @@ func TestHandleKeyPressRouterAndClearsError(t *testing.T) {
 		ScreenSessions,
 		ScreenSessionDetail,
 		ScreenSetup,
+		ScreenGraph,
+		ScreenGraphDetail,
+		ScreenGraphSearch,
 	} {
 		m.Screen = screen
 		m.ErrorMsg = "old error"
@@ -483,7 +494,7 @@ func TestHandleDashboardKeysAndSelectionRemainingBranches(t *testing.T) {
 		t.Fatal("cursor should stay at bottom boundary")
 	}
 
-	m.Cursor = 4
+	m.Cursor = 5
 	_, cmd := m.handleDashboardKeys(" ")
 	if cmd == nil {
 		t.Fatal("space on quit item should return quit command")
@@ -501,10 +512,10 @@ func TestHandleDashboardKeysAndSelectionRemainingBranches(t *testing.T) {
 		t.Fatal("cursor 0 selection should open search")
 	}
 
-	m.Cursor = 4
+	m.Cursor = 5
 	_, cmd = m.handleDashboardSelection()
 	if cmd == nil {
-		t.Fatal("cursor 4 selection should quit")
+		t.Fatal("cursor 5 selection should quit")
 	}
 
 	m.Cursor = 99
@@ -1088,4 +1099,321 @@ func TestSetupAllowlistPromptFlow(t *testing.T) {
 			t.Fatal("should clear SetupAllowlistError")
 		}
 	})
+}
+
+// ─── Graph Tests ──────────────────────────────────────────────────────────────
+
+func TestUpdateGraphMessageBranches(t *testing.T) {
+	m := New(nil, "")
+
+	updatedModel, _ := m.Update(entitiesLoadedMsg{err: errors.New("entity err")})
+	updated := updatedModel.(Model)
+	if updated.ErrorMsg != "entity err" {
+		t.Fatalf("error = %q", updated.ErrorMsg)
+	}
+
+	entities := []store.Entity{{ID: 1, Name: "React"}, {ID: 2, Name: "TypeScript"}}
+	updatedModel, _ = m.Update(entitiesLoadedMsg{entities: entities})
+	updated = updatedModel.(Model)
+	if len(updated.GraphEntities) != 2 {
+		t.Fatal("entities should be updated")
+	}
+
+	updatedModel, _ = m.Update(entityDetailLoadedMsg{err: errors.New("detail err")})
+	updated = updatedModel.(Model)
+	if updated.ErrorMsg != "detail err" {
+		t.Fatalf("error = %q", updated.ErrorMsg)
+	}
+
+	entity := &store.Entity{ID: 1, Name: "React"}
+	relations := []store.Relation{{ID: 1, SourceID: 1, Relation: "uses", TargetID: 2}}
+	updatedModel, _ = m.Update(entityDetailLoadedMsg{entity: entity, relations: relations})
+	updated = updatedModel.(Model)
+	if updated.Screen != ScreenGraphDetail || updated.EntityDetailScroll != 0 {
+		t.Fatal("entity detail message should open detail screen and reset scroll")
+	}
+	if updated.SelectedEntity == nil || updated.SelectedEntity.ID != 1 {
+		t.Fatal("selected entity should be set")
+	}
+	if len(updated.EntityRelations) != 1 {
+		t.Fatal("entity relations should be set")
+	}
+
+	updatedModel, _ = m.Update(graphSearchResultsMsg{err: errors.New("graph search err")})
+	updated = updatedModel.(Model)
+	if updated.ErrorMsg != "graph search err" {
+		t.Fatalf("error = %q", updated.ErrorMsg)
+	}
+
+	searchResults := []store.Entity{{ID: 3, Name: "Go"}}
+	updatedModel, _ = m.Update(graphSearchResultsMsg{entities: searchResults, query: "go"})
+	updated = updatedModel.(Model)
+	if updated.Screen != ScreenGraph || updated.Cursor != 0 || updated.Scroll != 0 {
+		t.Fatal("graph search results message should switch to graph screen and reset cursor/scroll")
+	}
+	if len(updated.GraphEntities) != 1 {
+		t.Fatal("graph entities should be updated from search")
+	}
+	if updated.GraphSearchQuery != "go" {
+		t.Fatal("graph search query should be set")
+	}
+}
+
+func TestHandleGraphKeys(t *testing.T) {
+	fx := newTestFixture(t)
+	m := New(fx.store, "")
+	m.Height = 14
+	m.Screen = ScreenGraph
+	m.GraphEntities = []store.Entity{
+		{ID: 1, Name: "React", EntityType: store.EntityTypeTool},
+		{ID: 2, Name: "TypeScript", EntityType: store.EntityTypeLanguage},
+		{ID: 3, Name: "Go", EntityType: store.EntityTypeLanguage},
+		{ID: 4, Name: "Angular", EntityType: store.EntityTypeTool},
+	}
+
+	t.Run("navigate up at top stays at zero", func(t *testing.T) {
+		m.Cursor = 0
+		updatedModel, _ := m.handleGraphKeys("up")
+		if updatedModel.(Model).Cursor != 0 {
+			t.Fatal("graph up at top should stay at zero")
+		}
+	})
+
+	t.Run("navigate down", func(t *testing.T) {
+		m.Cursor = 0
+		updatedModel, _ := m.handleGraphKeys("down")
+		if updatedModel.(Model).Cursor != 1 {
+			t.Fatal("graph down should move cursor")
+		}
+	})
+
+	t.Run("navigate down at bottom stays", func(t *testing.T) {
+		m.Cursor = len(m.GraphEntities) - 1
+		updatedModel, _ := m.handleGraphKeys("down")
+		if updatedModel.(Model).Cursor != len(m.GraphEntities)-1 {
+			t.Fatal("graph down at bottom should stay")
+		}
+	})
+
+	t.Run("enter loads entity detail", func(t *testing.T) {
+		m.Cursor = 0
+		updatedModel, cmd := m.handleGraphKeys("enter")
+		updated := updatedModel.(Model)
+		if updated.PrevScreen != ScreenGraph || cmd == nil {
+			t.Fatal("graph enter should request entity detail command")
+		}
+	})
+
+	t.Run("slash opens search", func(t *testing.T) {
+		m.Cursor = 0
+		updatedModel, _ := m.handleGraphKeys("/")
+		updated := updatedModel.(Model)
+		if updated.Screen != ScreenGraphSearch {
+			t.Fatal("graph / should open graph search")
+		}
+	})
+
+	t.Run("s opens search", func(t *testing.T) {
+		m.Cursor = 0
+		updatedModel, _ := m.handleGraphKeys("s")
+		updated := updatedModel.(Model)
+		if updated.Screen != ScreenGraphSearch {
+			t.Fatal("graph s should open graph search")
+		}
+	})
+
+	t.Run("esc returns to dashboard", func(t *testing.T) {
+		updatedModel, cmd := m.handleGraphKeys("esc")
+		updated := updatedModel.(Model)
+		if updated.Screen != ScreenDashboard || cmd == nil {
+			t.Fatal("graph esc should return to dashboard and refresh stats")
+		}
+	})
+
+	t.Run("q returns to dashboard", func(t *testing.T) {
+		updatedModel, cmd := m.handleGraphKeys("q")
+		updated := updatedModel.(Model)
+		if updated.Screen != ScreenDashboard || cmd == nil {
+			t.Fatal("graph q should return to dashboard and refresh stats")
+		}
+	})
+
+	t.Run("enter with empty list does nothing", func(t *testing.T) {
+		m.GraphEntities = nil
+		m.Cursor = 0
+		updatedModel, cmd := m.handleGraphKeys("enter")
+		if cmd != nil {
+			t.Fatal("graph enter with no entities should not return command")
+		}
+		if updatedModel.(Model).Screen != ScreenGraph {
+			t.Fatal("graph should stay on graph screen")
+		}
+	})
+
+	t.Run("scrolls when items overflow", func(t *testing.T) {
+		m.Height = 12 // visibleItems = 12-8 = 4
+		m.GraphEntities = []store.Entity{
+			{ID: 1, Name: "A"}, {ID: 2, Name: "B"}, {ID: 3, Name: "C"}, {ID: 4, Name: "D"},
+			{ID: 5, Name: "E"}, {ID: 6, Name: "F"},
+		}
+		m.Cursor = 3
+		m.Scroll = 0
+		updatedModel, _ := m.handleGraphKeys("down")
+		updated := updatedModel.(Model)
+		if updated.Cursor != 4 || updated.Scroll != 1 {
+			t.Fatalf("cursor/scroll = %d/%d, want 4/1", updated.Cursor, updated.Scroll)
+		}
+		// Up from cursor=4 scroll=1 → cursor=3. 3 >= scroll=1, so scroll stays
+		updatedModel, _ = updated.handleGraphKeys("up")
+		updated = updatedModel.(Model)
+		if updated.Cursor != 3 || updated.Scroll != 1 {
+			t.Fatalf("cursor/scroll = %d/%d, want 3/1", updated.Cursor, updated.Scroll)
+		}
+	})
+}
+
+func TestHandleGraphDetailKeys(t *testing.T) {
+	fx := newTestFixture(t)
+	m := New(fx.store, "")
+
+	m.Screen = ScreenGraphDetail
+	m.PrevScreen = ScreenGraph
+	m.EntityDetailScroll = 3
+
+	t.Run("down increases scroll", func(t *testing.T) {
+		updatedModel, _ := m.handleGraphDetailKeys("down")
+		if updatedModel.(Model).EntityDetailScroll != 4 {
+			t.Fatal("graph detail down should increase scroll")
+		}
+	})
+
+	t.Run("up decreases scroll", func(t *testing.T) {
+		updatedModel, _ := m.handleGraphDetailKeys("up")
+		if updatedModel.(Model).EntityDetailScroll != 2 {
+			t.Fatal("graph detail up should decrease scroll")
+		}
+	})
+
+	t.Run("up at zero stays", func(t *testing.T) {
+		m.EntityDetailScroll = 0
+		updatedModel, _ := m.handleGraphDetailKeys("up")
+		if updatedModel.(Model).EntityDetailScroll != 0 {
+			t.Fatal("graph detail up at zero should stay")
+		}
+	})
+
+	t.Run("esc returns to previous screen", func(t *testing.T) {
+		m.EntityDetailScroll = 5
+		updatedModel, cmd := m.handleGraphDetailKeys("esc")
+		updated := updatedModel.(Model)
+		if updated.Screen != ScreenGraph {
+			t.Fatalf("screen = %v, want %v", updated.Screen, ScreenGraph)
+		}
+		if updated.EntityDetailScroll != 0 {
+			t.Fatalf("scroll = %d, want 0", updated.EntityDetailScroll)
+		}
+		if cmd == nil {
+			t.Fatal("expected refresh command when leaving graph detail")
+		}
+	})
+}
+
+func TestHandleGraphSearchInputKeys(t *testing.T) {
+	fx := newTestFixture(t)
+	m := New(fx.store, "")
+	m.Screen = ScreenGraphSearch
+	m.GraphSearchInput.Focus()
+
+	t.Run("enter with query searches", func(t *testing.T) {
+		m.GraphSearchInput.SetValue("react")
+		updatedModel, cmd := m.handleGraphSearchInputKeys(tea.KeyMsg{Type: tea.KeyEnter})
+		updated := updatedModel.(Model)
+		if updated.GraphSearchInput.Focused() {
+			t.Fatal("graph search input should blur on enter")
+		}
+		if cmd == nil {
+			t.Fatal("enter with query should return search command")
+		}
+	})
+
+	t.Run("enter with empty query does nothing", func(t *testing.T) {
+		m.GraphSearchInput.SetValue("")
+		m.GraphSearchInput.Focus()
+		_, cmd := m.handleGraphSearchInputKeys(tea.KeyMsg{Type: tea.KeyEnter})
+		if cmd != nil {
+			t.Fatal("enter with empty query should not return command")
+		}
+	})
+
+	t.Run("esc returns to graph list", func(t *testing.T) {
+		m.GraphSearchInput.SetValue("x")
+		m.GraphSearchInput.Focus()
+		updatedModel, cmd := m.handleGraphSearchInputKeys(tea.KeyMsg{Type: tea.KeyEscape})
+		updated := updatedModel.(Model)
+		if updated.Screen != ScreenGraph {
+			t.Fatalf("screen = %v, want %v", updated.Screen, ScreenGraph)
+		}
+		if updated.GraphSearchInput.Focused() {
+			t.Fatal("graph search input should blur on esc")
+		}
+		if cmd == nil {
+			t.Fatal("esc should return loadEntities command to refresh")
+		}
+	})
+
+	t.Run("non-control key updates input", func(t *testing.T) {
+		m.GraphSearchInput.SetValue("")
+		m.GraphSearchInput.Focus()
+		updatedModel, cmd := m.handleGraphSearchInputKeys(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+		if cmd == nil || updatedModel.(Model).GraphSearchInput.Value() == "" {
+			t.Fatal("non-control key should update graph search input")
+		}
+	})
+}
+
+func TestHandleGraphSearchKeys(t *testing.T) {
+	m := New(nil, "")
+
+	t.Run("esc returns to graph", func(t *testing.T) {
+		m.Screen = ScreenGraphSearch
+		updatedModel, cmd := m.handleGraphSearchKeys("esc")
+		updated := updatedModel.(Model)
+		if updated.Screen != ScreenGraph || cmd == nil {
+			t.Fatal("graph search esc should return to graph list")
+		}
+	})
+
+	t.Run("q returns to graph", func(t *testing.T) {
+		m.Screen = ScreenGraphSearch
+		updatedModel, cmd := m.handleGraphSearchKeys("q")
+		updated := updatedModel.(Model)
+		if updated.Screen != ScreenGraph || cmd == nil {
+			t.Fatal("graph search q should return to graph list")
+		}
+	})
+
+	t.Run("slash focuses input", func(t *testing.T) {
+		m.Screen = ScreenGraphSearch
+		updatedModel, _ := m.handleGraphSearchKeys("/")
+		updated := updatedModel.(Model)
+		if !updated.GraphSearchInput.Focused() {
+			t.Fatal("graph search / should focus input")
+		}
+	})
+
+	t.Run("i focuses input", func(t *testing.T) {
+		m.Screen = ScreenGraphSearch
+		updatedModel, _ := m.handleGraphSearchKeys("i")
+		updated := updatedModel.(Model)
+		if !updated.GraphSearchInput.Focused() {
+			t.Fatal("graph search i should focus input")
+		}
+	})
+}
+
+func TestRefreshScreenIncludesGraph(t *testing.T) {
+	m := New(newTestFixture(t).store, "")
+	if cmd := m.refreshScreen(ScreenGraph); cmd == nil {
+		t.Fatal("graph refresh should return loadEntities command")
+	}
 }
