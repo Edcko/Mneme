@@ -50,7 +50,7 @@ func TestUpsertEntity_Dedup(t *testing.T) {
 		t.Fatalf("first upsert: %v", err)
 	}
 
-	// Same name + project → same ID, updated summary.
+	// Same name + type + project → same ID, updated summary.
 	id2, err := s.UpsertEntity("Go", store.EntityTypeLanguage, "fast compiled language by Google", "mneme")
 	if err != nil {
 		t.Fatalf("second upsert: %v", err)
@@ -58,6 +58,130 @@ func TestUpsertEntity_Dedup(t *testing.T) {
 
 	if id1 != id2 {
 		t.Errorf("expected same ID on dedup: got %d and %d", id1, id2)
+	}
+}
+
+func TestUpsertEntity_DifferentTypesDontCollide(t *testing.T) {
+	s := newGraphStore(t)
+
+	// "Go" as language
+	id1, err := s.UpsertEntity("Go", store.EntityTypeLanguage, "compiled language", "mneme")
+	if err != nil {
+		t.Fatalf("UpsertEntity language: %v", err)
+	}
+
+	// Same name, different type — must NOT dedup.
+	id2, err := s.UpsertEntity("Go", store.EntityTypeTool, "board game tool", "mneme")
+	if err != nil {
+		t.Fatalf("UpsertEntity tool: %v", err)
+	}
+
+	if id1 == id2 {
+		t.Errorf("different entity_types must get different IDs, got same %d", id1)
+	}
+
+	// Both must exist.
+	entities, err := s.ListEntities("", "mneme", 10)
+	if err != nil {
+		t.Fatalf("ListEntities: %v", err)
+	}
+	if len(entities) != 2 {
+		t.Errorf("expected 2 entities (different types), got %d", len(entities))
+	}
+}
+
+func TestUpsertEntity_SemanticMatch(t *testing.T) {
+	s := newGraphStore(t)
+
+	// Insert "React" as tool.
+	id1, err := s.UpsertEntity("React", store.EntityTypeTool, "UI library", "mneme")
+	if err != nil {
+		t.Fatalf("UpsertEntity React: %v", err)
+	}
+
+	// "React.js" should semantically match "React" (same type, same project).
+	id2, err := s.UpsertEntity("React.js", store.EntityTypeTool, "UI framework", "mneme")
+	if err != nil {
+		t.Fatalf("UpsertEntity React.js: %v", err)
+	}
+
+	if id1 != id2 {
+		t.Errorf("semantic match should merge React.js with React: got %d and %d", id1, id2)
+	}
+
+	// Summary must be updated.
+	e, err := s.GetEntityByID(id1)
+	if err != nil {
+		t.Fatalf("GetEntityByID: %v", err)
+	}
+	if e.Summary == nil || *e.Summary != "UI framework" {
+		t.Errorf("expected summary updated to 'UI framework', got %v", e.Summary)
+	}
+}
+
+func TestUpsertEntity_SemanticMatch_NoCrossType(t *testing.T) {
+	s := newGraphStore(t)
+
+	// "React" as tool.
+	toolID, _ := s.UpsertEntity("React", store.EntityTypeTool, "UI library", "mneme")
+
+	// "React" as concept — must NOT match the tool entity via semantic dedup.
+	conceptID, _ := s.UpsertEntity("React", store.EntityTypeConcept, "UI pattern", "mneme")
+
+	if toolID == conceptID {
+		t.Errorf("semantic match must not cross entity_types: got same ID %d", toolID)
+	}
+}
+
+func TestUpsertEntity_SemanticMatch_BelowThreshold(t *testing.T) {
+	s := newGraphStore(t)
+
+	// "Redis" as tool.
+	id1, _ := s.UpsertEntity("Redis", store.EntityTypeTool, "in-memory store", "mneme")
+
+	// "React" is not similar enough to "Redis" → must create separate entity.
+	id2, _ := s.UpsertEntity("React", store.EntityTypeTool, "UI framework", "mneme")
+
+	if id1 == id2 {
+		t.Errorf("dissimilar names must not merge: got same ID %d", id1)
+	}
+}
+
+func TestSemanticDedup_RelationsPointCorrectly(t *testing.T) {
+	s := newGraphStore(t)
+
+	// Pre-create "React" and "MyApp".
+	reactID, _ := s.UpsertEntity("React", store.EntityTypeTool, "UI library", "mneme")
+	appID, _ := s.UpsertEntity("MyApp", store.EntityTypeProject, "web app", "mneme")
+
+	// "React.js" should resolve to the existing "React" entity via semantic match.
+	semanticID, err := s.UpsertEntity("React.js", store.EntityTypeTool, "frontend framework", "mneme")
+	if err != nil {
+		t.Fatalf("UpsertEntity React.js: %v", err)
+	}
+	if semanticID != reactID {
+		t.Fatalf("React.js should resolve to React ID %d, got %d", reactID, semanticID)
+	}
+
+	// Add relation: MyApp usa React.
+	_, err = s.AddRelation(appID, semanticID, "usa", nil)
+	if err != nil {
+		t.Fatalf("AddRelation: %v", err)
+	}
+
+	// Verify relation target is the React entity (not a new one).
+	rels, err := s.GetEntityRelations(appID, true)
+	if err != nil {
+		t.Fatalf("GetEntityRelations: %v", err)
+	}
+	if len(rels) != 1 {
+		t.Fatalf("expected 1 relation, got %d", len(rels))
+	}
+	if rels[0].TargetID != reactID {
+		t.Errorf("relation target should be React ID %d, got %d", reactID, rels[0].TargetID)
+	}
+	if rels[0].TargetName != "React" {
+		t.Errorf("relation target name should be 'React', got %s", rels[0].TargetName)
 	}
 }
 

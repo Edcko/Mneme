@@ -14,8 +14,11 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/Edcko/Mneme/internal/vector"
 )
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -100,6 +103,7 @@ func (s *Store) migrateGraph() error {
 		CREATE INDEX IF NOT EXISTS idx_entities_type    ON entities(entity_type);
 		CREATE INDEX IF NOT EXISTS idx_entities_project ON entities(project);
 		CREATE INDEX IF NOT EXISTS idx_entities_name_project ON entities(name COLLATE NOCASE, project);
+		CREATE INDEX IF NOT EXISTS idx_entities_type_project ON entities(entity_type, project);
 
 		CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 			name,
@@ -190,11 +194,92 @@ func (s *Store) ensureEntityFTSTriggers() error {
 	return nil
 }
 
+// ─── Semantic Dedup Helpers ───────────────────────────────────────────────────
+
+// nameSimThreshold is the minimum cosine similarity between character-frequency
+// vectors for two entity names to be considered a semantic match.
+const nameSimThreshold float32 = 0.80
+
+// normalizeName lowercases and strips every character that is not a-z or 0-9.
+// Used to build a comparison-friendly form: "React.js" → "reactjs", "Node JS" → "nodejs".
+func normalizeName(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// nameToCharVec builds a 128-dimension character-frequency vector from a
+// pre-normalized name.  Each slot corresponds to an ASCII code point.
+// Used with vector.CosineSimilarity for name similarity scoring.
+func nameToCharVec(s string) []float32 {
+	vec := make([]float32, 128)
+	for _, r := range s {
+		if r >= 0 && r < 128 {
+			vec[r]++
+		}
+	}
+	return vec
+}
+
+// semanticEntityMatch scans entities of the same (project, entity_type) and
+// returns the ID of the one whose name has the highest cosine similarity to
+// the given name (above nameSimThreshold).  Returns 0 when no match.
+func (s *Store) semanticEntityMatch(tx *sql.Tx, name string, entityType EntityType, project string) int64 {
+	rows, err := tx.Query(`
+		SELECT id, name FROM entities
+		WHERE entity_type = ?
+		  AND ifnull(project, '') = ifnull(?, '')
+	`, string(entityType), project)
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+
+	norm := normalizeName(name)
+	if norm == "" {
+		return 0
+	}
+	queryVec := nameToCharVec(norm)
+
+	var bestID int64
+	var bestScore float32
+
+	for rows.Next() {
+		var id int64
+		var candidate string
+		if err := rows.Scan(&id, &candidate); err != nil {
+			continue
+		}
+		// Skip exact name match — already handled in phase 1.
+		if strings.EqualFold(name, candidate) {
+			continue
+		}
+		cVec := nameToCharVec(normalizeName(candidate))
+		score := vector.CosineSimilarity(queryVec, cVec)
+		if score > bestScore {
+			bestScore = score
+			bestID = id
+		}
+	}
+
+	if bestScore >= nameSimThreshold {
+		return bestID
+	}
+	return 0
+}
+
 // ─── Entity Operations ────────────────────────────────────────────────────────
 
-// UpsertEntity creates or updates an entity by (name, project).
-// If an entity with the same name exists in the same project, its summary is
-// updated and the existing ID is returned. Otherwise a new entity is created.
+// UpsertEntity creates or updates an entity by (name, entity_type, project).
+// If an entity with the same name and type exists in the same project, its summary is
+// updated and the existing ID is returned. Otherwise, semantic dedup is attempted:
+// if a name-similar entity of the same type and project is found, it is reused.
+// If neither match succeeds, a new entity is created.
 func (s *Store) UpsertEntity(name string, entityType EntityType, summary, project string) (int64, error) {
 	if strings.TrimSpace(name) == "" {
 		return 0, fmt.Errorf("entity name cannot be empty")
@@ -206,14 +291,15 @@ func (s *Store) UpsertEntity(name string, entityType EntityType, summary, projec
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Try to find existing entity with the same name in the same project (case-insensitive).
+	// Phase 1: Exact match by (name COLLATE NOCASE, entity_type, project).
 	var existingID int64
 	err = tx.QueryRow(`
 		SELECT id FROM entities
 		WHERE name = ? COLLATE NOCASE
+		  AND entity_type = ?
 		  AND ifnull(project, '') = ifnull(?, '')
 		LIMIT 1
-	`, name, project).Scan(&existingID)
+	`, name, string(entityType), project).Scan(&existingID)
 
 	if err == nil {
 		// Entity exists — update summary if provided.
@@ -233,7 +319,25 @@ func (s *Store) UpsertEntity(name string, entityType EntityType, summary, projec
 		return existingID, nil
 	}
 
-	// Create new entity.
+	// Phase 2: Semantic match — same project, same entity_type, name similarity ≥ threshold.
+	if matchID := s.semanticEntityMatch(tx, name, entityType, project); matchID > 0 {
+		if summary != "" {
+			if _, err := tx.Exec(`
+				UPDATE entities
+				SET summary    = ?,
+				    updated_at = datetime('now')
+				WHERE id = ?
+			`, summary, matchID); err != nil {
+				return 0, fmt.Errorf("update entity summary (semantic): %w", err)
+			}
+		}
+		if err := s.commitHook(tx); err != nil {
+			return 0, err
+		}
+		return matchID, nil
+	}
+
+	// Phase 3: No match — create new entity.
 	var proj *string
 	if project != "" {
 		proj = &project
@@ -922,4 +1026,3 @@ func scanRelations(rows rowScanner) ([]Relation, error) {
 	}
 	return results, rows.Err()
 }
-

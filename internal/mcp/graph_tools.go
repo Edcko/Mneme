@@ -482,11 +482,19 @@ func IndexObservationEntities(s *store.Store, obsID int64, content, project stri
 	}
 
 	// Upsert entities and track their IDs for relation linking.
-	entityIDs := make(map[string]int64, len(result.Entities))
+	// Composite key (name\0type) prevents collisions when the same name
+	// appears with different entity types.  Name-only keys are set only
+	// once (first type wins) so that relation resolution still works.
+	entityIDs := make(map[string]int64, len(result.Entities)*2)
 	for _, e := range result.Entities {
 		id, err := s.UpsertEntity(e.Name, store.EntityType(e.EntityType), e.Summary, project)
 		if err == nil {
-			entityIDs[strings.ToLower(e.Name)] = id
+			compositeKey := strings.ToLower(e.Name) + "\x00" + strings.ToLower(string(e.EntityType))
+			entityIDs[compositeKey] = id
+			nameKey := strings.ToLower(e.Name)
+			if _, exists := entityIDs[nameKey]; !exists {
+				entityIDs[nameKey] = id
+			}
 		}
 	}
 
