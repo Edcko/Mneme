@@ -383,7 +383,6 @@ func TestSyncCycle_RespectsBackoff(t *testing.T) {
 	}
 
 	transport := newFakeTransport()
-	var exportCalls int32
 
 	origNewSyncer := newSyncer
 	newSyncer = func(st *store.Store, tr sync.Transport) *sync.Syncer {
@@ -391,13 +390,8 @@ func TestSyncCycle_RespectsBackoff(t *testing.T) {
 	}
 	defer func() { newSyncer = origNewSyncer }()
 
-	// Patch Export to count calls
-	origExport := storeExportExport
-	storeExportExport = func(sy *sync.Syncer, createdBy, project string) (*sync.SyncResult, error) {
-		atomic.AddInt32(&exportCalls, 1)
-		return origExport(sy, createdBy, project)
-	}
-	defer func() { storeExportExport = origExport }()
+	// No seam needed — backoff prevents the sync cycle from reaching Export.
+	// We verify via transport.writeCalls (which stays 0) instead.
 
 	m, err := New(s, Config{
 		ServerURL: "https://sync.example.com",
@@ -416,8 +410,9 @@ func TestSyncCycle_RespectsBackoff(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	m.Stop()
 
-	if atomic.LoadInt32(&exportCalls) > 0 {
-		t.Error("expected no export calls during backoff")
+	// No writes should happen during backoff — transport never called.
+	if transport.writeCalls > 0 {
+		t.Error("expected no transport writes during backoff")
 	}
 }
 
@@ -792,12 +787,4 @@ func TestSyncCycle_FileTransportRoundtrip(t *testing.T) {
 	if len(entries) == 0 {
 		t.Error("expected at least one chunk file in sync dir")
 	}
-}
-
-// ─── Seams ────────────────────────────────────────────────────────────────────
-
-// storeExportExport is a testable seam that wraps Syncer.Export.
-// In production it just calls the method. Tests can override it.
-var storeExportExport = func(sy *sync.Syncer, createdBy, project string) (*sync.SyncResult, error) {
-	return sy.Export(createdBy, project)
 }
