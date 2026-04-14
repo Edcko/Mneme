@@ -7,8 +7,8 @@
 // Tool profiles allow agents to load only the tools they need:
 //
 //	engram mcp                         → all 21 tools (default)
-//	engram mcp --tools=agent,graph     → 17 tools for AI coding sessions (recommended)
-//	engram mcp --tools=agent           → 11 agent tools (per skill files)
+//	engram mcp --tools=agent,graph     → 18 tools for AI coding sessions (recommended)
+//	engram mcp --tools=agent           → 12 agent tools (per skill files)
 //	engram mcp --tools=admin           → 4 tools for TUI/CLI (delete, stats, timeline, merge)
 //	engram mcp --tools=agent,admin     → combine profiles
 //	engram mcp --tools=mem_save,mem_search → individual tool names
@@ -41,7 +41,8 @@ var loadMCPStats = func(s *store.Store) (*store.Stats, error) {
 // "agent" — tools AI agents use during coding sessions:
 //   mem_save, mem_search, mem_context, mem_session_summary,
 //   mem_session_start, mem_session_end, mem_get_observation,
-//   mem_suggest_topic_key, mem_capture_passive, mem_save_prompt
+//   mem_suggest_topic_key, mem_capture_passive, mem_save_prompt,
+//   mem_update, mem_retrieve
 //
 // "admin" — tools for manual curation, TUI, and dashboards:
 //   mem_update, mem_delete, mem_stats, mem_timeline, mem_merge_projects
@@ -63,6 +64,7 @@ var ProfileAgent = map[string]bool{
 	"mem_capture_passive":   true, // extract learnings from text — referenced in Gemini/Codex protocol
 	"mem_save_prompt":       true, // save user prompts
 	"mem_update":            true, // update observation by ID — skills say "use mem_update when you have an exact ID to correct"
+	"mem_retrieve":          true, // composite retrieval: observations + graph context in one call
 }
 
 // ProfileAdmin contains tools for TUI, dashboards, and manual curation
@@ -632,6 +634,39 @@ Duplicates are automatically detected and skipped — safe to call multiple time
 		)
 	}
 
+	// ─── mem_retrieve (profile: agent, deferred — composite retrieval) ──
+	if shouldRegister("mem_retrieve", allowlist) {
+		srv.AddTool(
+			mcp.NewTool("mem_retrieve",
+				mcp.WithDeferLoading(true),
+				mcp.WithTitleAnnotation("Retrieve Context"),
+				mcp.WithReadOnlyHintAnnotation(true),
+				mcp.WithDestructiveHintAnnotation(false),
+				mcp.WithIdempotentHintAnnotation(true),
+				mcp.WithOpenWorldHintAnnotation(false),
+				mcp.WithDescription(
+					"Unified retrieval that combines memory search with knowledge graph context. "+
+						"Given a query, returns relevant observations AND related entities/relations from the graph — "+
+						"all in one structured response. Use this instead of calling mem_search + mem_graph_search separately.",
+				),
+				mcp.WithString("query",
+					mcp.Required(),
+					mcp.Description("Search query — natural language or keywords"),
+				),
+				mcp.WithString("project",
+					mcp.Description("Filter by project name"),
+				),
+				mcp.WithString("scope",
+					mcp.Description("Filter observations by scope: project (default) or personal"),
+				),
+				mcp.WithNumber("limit",
+					mcp.Description("Max results per source (default: 5, max: 20)"),
+				),
+			),
+			handleRetrieve(s, cfg),
+		)
+	}
+
 	// ─── Knowledge graph tools (Mneme extension) ─────────────────────────
 	registerGraphTools(srv, s, allowlist)
 }
@@ -776,6 +811,35 @@ func handleSave(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {
 			msg += "\n" + similarWarning
 		}
 		return mcp.NewToolResultText(msg), nil
+	}
+}
+
+func handleRetrieve(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		query, _ := req.GetArguments()["query"].(string)
+		if query == "" {
+			return mcp.NewToolResultError("query is required"), nil
+		}
+		project, _ := req.GetArguments()["project"].(string)
+		scope, _ := req.GetArguments()["scope"].(string)
+		limit := intArg(req, "limit", 5)
+
+		// Apply default project when LLM sends empty
+		if project == "" {
+			project = cfg.DefaultProject
+		}
+
+		result, err := s.CompositeRetrieve(store.RetrieveParams{
+			Query:   query,
+			Project: project,
+			Scope:   scope,
+			Limit:   limit,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Retrieve error: %s", err)), nil
+		}
+
+		return mcp.NewToolResultText(store.FormatRetrieveResult(result)), nil
 	}
 }
 

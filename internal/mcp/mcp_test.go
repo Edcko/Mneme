@@ -928,7 +928,8 @@ func TestResolveToolsAgentProfile(t *testing.T) {
 		"mem_save", "mem_search", "mem_context", "mem_session_summary",
 		"mem_session_start", "mem_session_end", "mem_get_observation",
 		"mem_suggest_topic_key", "mem_capture_passive", "mem_save_prompt",
-		"mem_update", // skills explicitly say "use mem_update when you have an exact ID to correct"
+		"mem_update",   // skills say "use mem_update when you have an exact ID to correct"
+		"mem_retrieve", // composite retrieval: observations + graph in one call
 	}
 	for _, tool := range expectedTools {
 		if !result[tool] {
@@ -973,12 +974,14 @@ func TestResolveToolsCombinedProfiles(t *testing.T) {
 		t.Fatal("expected non-nil allowlist for combined profiles")
 	}
 
-	// Should have all 21 tools (15 original + 6 graph)
+	// Should have all 22 tools (15 original + 1 retrieve + 6 graph)
 	allTools := []string{
 		"mem_save", "mem_search", "mem_context", "mem_session_summary",
 		"mem_session_start", "mem_session_end", "mem_get_observation",
 		"mem_suggest_topic_key", "mem_capture_passive", "mem_save_prompt",
 		"mem_update", "mem_delete", "mem_stats", "mem_timeline", "mem_merge_projects",
+		// Mneme composite retrieval
+		"mem_retrieve",
 		// Mneme graph tools
 		"mem_graph_search", "mem_entities", "mem_relations",
 		"mem_relation_history", "mem_invalidate", "mem_rebuild_communities",
@@ -1102,12 +1105,12 @@ func TestNewServerWithToolsAgentProfile(t *testing.T) {
 
 	tools := srv.ListTools()
 
-	// Agent tools should be present (11 tools)
+	// Agent tools should be present (12 tools)
 	agentTools := []string{
 		"mem_save", "mem_search", "mem_context", "mem_session_summary",
 		"mem_session_start", "mem_session_end", "mem_get_observation",
 		"mem_suggest_topic_key", "mem_capture_passive", "mem_save_prompt",
-		"mem_update",
+		"mem_update", "mem_retrieve",
 	}
 	for _, name := range agentTools {
 		if tools[name] == nil {
@@ -1167,6 +1170,8 @@ func TestNewServerWithToolsNilRegistersAll(t *testing.T) {
 		"mem_session_start", "mem_session_end", "mem_get_observation",
 		"mem_suggest_topic_key", "mem_capture_passive", "mem_save_prompt",
 		"mem_update", "mem_delete", "mem_stats", "mem_timeline", "mem_merge_projects",
+		// Mneme composite retrieval
+		"mem_retrieve",
 		// Mneme graph tools
 		"mem_graph_search", "mem_entities", "mem_relations",
 		"mem_relation_history", "mem_invalidate", "mem_rebuild_communities",
@@ -1208,14 +1213,14 @@ func TestNewServerBackwardsCompatible(t *testing.T) {
 	srv := NewServer(s)
 	tools := srv.ListTools()
 
-	// 11 agent + 4 admin + 6 graph = 21 total
-	if len(tools) != 21 {
-		t.Errorf("NewServer should register all 21 tools, got %d", len(tools))
+	// 12 agent + 4 admin + 6 graph = 22 total
+	if len(tools) != 22 {
+		t.Errorf("NewServer should register all 22 tools, got %d", len(tools))
 	}
 }
 
 func TestProfileConsistency(t *testing.T) {
-	// Verify that agent + admin + graph = all 21 tools
+	// Verify that agent + admin + graph = all 22 tools
 	combined := make(map[string]bool)
 	for tool := range ProfileAgent {
 		combined[tool] = true
@@ -1227,8 +1232,8 @@ func TestProfileConsistency(t *testing.T) {
 		combined[tool] = true
 	}
 
-	if len(combined) != 21 {
-		t.Errorf("agent + admin + graph should cover all 21 tools, got %d", len(combined))
+	if len(combined) != 22 {
+		t.Errorf("agent + admin + graph should cover all 22 tools, got %d", len(combined))
 	}
 
 	// Verify no overlap between profiles
@@ -1526,9 +1531,9 @@ func TestNewServerWithConfig(t *testing.T) {
 		t.Fatal("expected MCP server instance")
 	}
 	tools := srv.ListTools()
-	// Should have all 21 tools (15 original + 6 graph)
-	if len(tools) != 21 {
-		t.Errorf("NewServerWithConfig should register all 21 tools, got %d", len(tools))
+	// Should have all 22 tools (15 original + 1 retrieve + 6 graph)
+	if len(tools) != 22 {
+		t.Errorf("NewServerWithConfig should register all 22 tools, got %d", len(tools))
 	}
 }
 
@@ -1834,5 +1839,175 @@ func TestHandleSaveDefaultProjectDoesNotOverrideExplicit(t *testing.T) {
 	}
 	if len(defaultObs) > 0 {
 		t.Fatal("observation should NOT be in default-project")
+	}
+}
+
+// ─── Composite Retrieve (mem_retrieve) Tests ─────────────────────────────────
+
+func TestHandleRetrieveReturnsObservationsAndGraph(t *testing.T) {
+	s := newMCPTestStore(t)
+	if err := s.CreateSession("s-ret", "engram", "/tmp"); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// Seed an observation.
+	_, err := s.AddObservation(store.AddObservationParams{
+		SessionID: "s-ret",
+		Type:      "decision",
+		Title:     "Use SQLite for storage",
+		Content:   "SQLite FTS5 provides excellent full-text search for memory retrieval",
+		Project:   "engram",
+		Scope:     "project",
+	})
+	if err != nil {
+		t.Fatalf("add observation: %v", err)
+	}
+
+	// Seed graph entities.
+	s.UpsertEntity("SQLite", store.EntityTypeTool, "embedded database", "engram")
+
+	h := handleRetrieve(s, MCPConfig{})
+	req := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"query":   "SQLite storage retrieval",
+		"project": "engram",
+		"limit":   5.0,
+	}}}
+
+	res, err := h(context.Background(), req)
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected retrieve error: %s", callResultText(t, res))
+	}
+
+	text := callResultText(t, res)
+	if !strings.Contains(text, "Relevant Memories") {
+		t.Fatalf("expected Memories section in retrieve output, got %q", text)
+	}
+	if !strings.Contains(text, "SQLite") {
+		t.Fatalf("expected SQLite mention in retrieve output, got %q", text)
+	}
+}
+
+func TestHandleRetrieveRequiresQuery(t *testing.T) {
+	s := newMCPTestStore(t)
+	h := handleRetrieve(s, MCPConfig{})
+
+	req := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{}}}
+	res, err := h(context.Background(), req)
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("expected error when query is missing")
+	}
+}
+
+func TestHandleRetrieveEmptyResult(t *testing.T) {
+	s := newMCPTestStore(t)
+	h := handleRetrieve(s, MCPConfig{})
+
+	req := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"query":   "nonexistent query xyz123456",
+		"project": "no-project",
+	}}}
+	res, err := h(context.Background(), req)
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error on empty result: %s", callResultText(t, res))
+	}
+	text := callResultText(t, res)
+	if !strings.Contains(text, "No context found") {
+		t.Fatalf("expected empty result message, got %q", text)
+	}
+}
+
+func TestHandleRetrieveUsesDefaultProject(t *testing.T) {
+	s := newMCPTestStore(t)
+	cfg := MCPConfig{DefaultProject: "engram"}
+	if err := s.CreateSession("s-def", "engram", "/tmp"); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	_, err := s.AddObservation(store.AddObservationParams{
+		SessionID: "s-def",
+		Type:      "note",
+		Title:     "Default project test",
+		Content:   "Observation saved under default project for retrieval testing",
+		Project:   "engram",
+	})
+	if err != nil {
+		t.Fatalf("add observation: %v", err)
+	}
+
+	h := handleRetrieve(s, cfg)
+	// No project specified — should use default "engram".
+	req := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"query": "retrieval testing",
+	}}}
+
+	res, err := h(context.Background(), req)
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected retrieve error: %s", callResultText(t, res))
+	}
+
+	text := callResultText(t, res)
+	if !strings.Contains(text, "Default project test") {
+		t.Fatalf("expected to find observation via default project, got %q", text)
+	}
+}
+
+func TestHandleRetrieveIsInAgentProfile(t *testing.T) {
+	s := newMCPTestStore(t)
+	allowlist := ResolveTools("agent")
+	srv := NewServerWithTools(s, allowlist)
+	tools := srv.ListTools()
+
+	if tools["mem_retrieve"] == nil {
+		t.Fatal("mem_retrieve should be in agent profile")
+	}
+}
+
+func TestHandleRetrieveIsDeferred(t *testing.T) {
+	s := newMCPTestStore(t)
+	srv := NewServer(s)
+	tools := srv.ListTools()
+
+	tool := tools["mem_retrieve"]
+	if tool == nil {
+		t.Fatal("mem_retrieve should be registered")
+	}
+	if !tool.Tool.DeferLoading {
+		t.Error("mem_retrieve should have DeferLoading=true")
+	}
+}
+
+func TestHandleRetrieveReturnsEmptyOnClosedStore(t *testing.T) {
+	s := newMCPTestStore(t)
+	if err := s.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	h := handleRetrieve(s, MCPConfig{})
+	res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"query": "test",
+	}}})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	// CompositeRetrieve is fault-tolerant: observation and entity search failures
+	// are non-fatal, so a closed store returns empty results rather than an error.
+	if res.IsError {
+		t.Fatalf("did not expect tool error on closed store (fault-tolerant), got: %s", callResultText(t, res))
+	}
+	text := callResultText(t, res)
+	if !strings.Contains(text, "No context found") {
+		t.Fatalf("expected empty result message on closed store, got %q", text)
 	}
 }
