@@ -1,7 +1,7 @@
 ---
-name: engram-issue-creation
+name: mneme-issue-creation
 description: >
-  Issue creation workflow for Engram following the issue-first enforcement system.
+  Issue creation workflow for Mneme following the issue-first enforcement system.
   Trigger: When creating a GitHub issue, reporting a bug, or requesting a feature.
 license: Apache-2.0
 metadata:
@@ -58,7 +58,7 @@ Auto-labels: `bug`, `status:needs-review`
 | **Expected Behavior** | What should have happened |
 | **Actual Behavior** | What happened instead (include errors/logs) |
 | **Operating System** | Dropdown: macOS, Linux variants, Windows, WSL |
-| **Engram Version** | Output of `engram version` |
+| **Mneme Version** | Output of `engram version` |
 | **Agent / Client** | Dropdown: Claude Code, OpenCode, Gemini CLI, Cursor, Windsurf, Other |
 
 #### Optional Fields
@@ -95,7 +95,7 @@ Two identical observations exist with different IDs.
 ### Operating System
 macOS
 
-### Engram Version
+### Mneme Version
 0.3.1
 
 ### Agent / Client

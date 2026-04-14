@@ -1,7 +1,7 @@
 ---
-name: engram-backlog-triage
+name: mneme-backlog-triage
 description: >
-  Backlog triage protocol for Engram: audit open issues and PRs, classify each item,
+  Backlog triage protocol for Mneme: audit open issues and PRs, classify each item,
   infer maintainer ideology from comments, and produce an actionable disposition report.
   Trigger: Auditing open issues or PRs, triaging the backlog, reviewing contributor
   submissions as a maintainer, or applying triage to any GitHub repo.
@@ -14,14 +14,14 @@ metadata:
 ## When to Use
 
 Use this skill when:
-- Running a full backlog audit on Engram (or any repo)
+- Running a full backlog audit on Mneme (or any repo)
 - Deciding merge / request-changes / close / needs-design / approve-issue
 - Cleaning noise from the issue tracker
 - Prioritizing what to act on next
 
 ---
 
-## Maintainer Philosophy (Engram)
+## Maintainer Philosophy (Mneme)
 
 These are the non-negotiable product values. Every triage decision is filtered through them.
 
@@ -34,9 +34,9 @@ These are the non-negotiable product values. Every triage decision is filtered t
 | **Thin adapters** | Plugin scripts (Claude, OpenCode, Gemini, Codex) are thin shims — logic lives in Go core. |
 | **Issue-first** | Every PR must link a `status:approved` issue. No approved issue → no PR. |
 | **Evidence-based reviews** | Request changes with specific, actionable items. No vague "needs improvement". |
-| **Tight scope** | Reject features that expand Engram's surface area without a compelling case. |
+| **Tight scope** | Reject features that expand Mneme's surface area without a compelling case. |
 | **Small focused contributions** | Prefer 50-line PRs solving one problem over 500-line PRs solving five. |
-| **Reject vague/scope-breaking work** | Close scope-creep issues and PRs that turn Engram into something else. |
+| **Reject vague/scope-breaking work** | Close scope-creep issues and PRs that turn Mneme into something else. |
 
 ---
 
@@ -268,4 +268,4 @@ for <owner/repo> and produce a disposition report.
 - **Issue-first is non-negotiable for PRs.** PRs without a `status:approved` issue always get CLOSE, not REQUEST CHANGES, because the contributor skipped the process entirely.
 - **Noise should be closed, not left open.** An open issue with no actionable content trains contributors to expect low quality to be tolerated.
 - **NEEDS DESIGN is a valid, non-blocking action.** It signals "good idea, wrong time" without rejecting the contributor.
-- **This skill targets Engram's workflow.** Adapt the philosophy table and label system when applying the reusable prompt to a different repository.
+- **This skill targets Mneme's workflow.** Adapt the philosophy table and label system when applying the reusable prompt to a different repository.

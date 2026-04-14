@@ -1,5 +1,5 @@
 #!/bin/bash
-# Engram — SubagentStop hook for Claude Code (async)
+# Mneme — SubagentStop hook for Claude Code (async)
 #
 # Thin hook: reads the subagent output from stdin, POSTs it to
 # the passive capture endpoint. All extraction logic lives in the

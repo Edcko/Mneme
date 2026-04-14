@@ -1,7 +1,7 @@
 ---
-name: engram-testing-coverage
+name: mneme-testing-coverage
 description: >
-  TDD and coverage standards for Engram.
+  TDD and coverage standards for Mneme.
   Trigger: When implementing behavior changes in any package.
 license: Apache-2.0
 metadata:

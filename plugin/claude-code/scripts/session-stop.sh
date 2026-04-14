@@ -1,5 +1,5 @@
 #!/bin/bash
-# Engram — Stop hook for Claude Code (async)
+# Mneme — Stop hook for Claude Code (async)
 #
 # Marks the session as ended via the HTTP API.
 # Runs async so it doesn't block Claude's response.

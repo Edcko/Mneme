@@ -1,8 +1,8 @@
 #!/bin/bash
-# Engram — UserPromptSubmit hook for Claude Code
+# Mneme — UserPromptSubmit hook for Claude Code
 #
 # On the FIRST message of a session: injects a ToolSearch instruction to force
-# Claude Code to load all engram memory tools (which are deferred by default).
+# Claude Code to load all mneme memory tools (which are deferred by default).
 #
 # On subsequent messages: checks when the last mem_save was for the current
 # project. If it's been > 15 minutes AND the session has been active > 5

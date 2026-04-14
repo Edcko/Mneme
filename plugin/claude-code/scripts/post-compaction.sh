@@ -1,5 +1,5 @@
 #!/bin/bash
-# Engram — Post-compaction hook for Claude Code
+# Mneme — Post-compaction hook for Claude Code
 #
 # When compaction happens, inject Memory Protocol + context and instruct
 # the agent to persist the compacted summary via mem_session_summary.
@@ -33,9 +33,9 @@ CONTEXT=$(curl -sf "${ENGRAM_URL}/context?project=${ENCODED_PROJECT}" --max-time
 
 # Inject Memory Protocol + compaction instruction + context
 cat <<'PROTOCOL'
-## Engram Persistent Memory — ACTIVE PROTOCOL
+## Mneme Persistent Memory — ACTIVE PROTOCOL
 
-You have engram memory tools. This protocol is MANDATORY and ALWAYS ACTIVE.
+You have mneme memory tools. This protocol is MANDATORY and ALWAYS ACTIVE.
 
 ### CORE TOOLS — always available, no ToolSearch needed
 mem_save, mem_search, mem_context, mem_session_summary, mem_get_observation, mem_save_prompt

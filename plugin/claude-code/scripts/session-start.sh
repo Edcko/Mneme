@@ -1,5 +1,5 @@
 #!/bin/bash
-# Engram — SessionStart hook for Claude Code
+# Mneme — SessionStart hook for Claude Code
 #
 # 1. Ensures the engram server is running
 # 2. Creates a session in engram
@@ -57,9 +57,9 @@ CONTEXT=$(curl -sf "${ENGRAM_URL}/context?project=${ENCODED_PROJECT}" --max-time
 
 # Inject Memory Protocol + context — stdout goes to Claude as additionalContext
 cat <<'PROTOCOL'
-## Engram Persistent Memory — ACTIVE PROTOCOL
+## Mneme Persistent Memory — ACTIVE PROTOCOL
 
-You have engram memory tools. This protocol is MANDATORY and ALWAYS ACTIVE.
+You have mneme memory tools. This protocol is MANDATORY and ALWAYS ACTIVE.
 
 ### CORE TOOLS — always available, no ToolSearch needed
 mem_save, mem_search, mem_context, mem_session_summary, mem_get_observation, mem_save_prompt
