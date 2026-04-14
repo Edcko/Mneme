@@ -1,16 +1,16 @@
-# Engram
+# Mneme
 
 **Persistent memory for AI coding agents**
 
-> *Engram* is a neuroscience term for the physical trace of a memory in the brain.
+> *Mneme* `/ˈniːm.iː/` — one of the three Muses of memory in Greek mythology.
 
-## What is Engram?
+## What is Mneme?
 
 An agent-agnostic persistent memory system. A Go binary with SQLite + FTS5 full-text search, exposed via CLI, HTTP API, and MCP server. Thin adapter plugins connect it to specific agents (OpenCode, Claude Code, Cursor, Windsurf, etc.).
 
 **Why Go?** Single binary, cross-platform, no runtime dependencies. Uses `modernc.org/sqlite` (pure Go, no CGO).
 
-- **Module**: `github.com/alanbuscaglia/engram`
+- **Module**: `github.com/Edcko/Mneme`
 - **Version**: 0.1.0
 
 ---
@@ -22,24 +22,24 @@ The Go binary is the brain. Thin adapter plugins per-agent talk to it via HTTP o
 ```
 Agent (OpenCode/Claude Code/Cursor/etc.)
     ↓ (plugin or MCP)
-Engram Go Binary
+Mneme Go Binary
     ↓
 SQLite + FTS5 (~/.engram/engram.db)
 ```
 
 Six interfaces:
 
-1. **CLI** — Direct terminal usage (`engram search`, `engram save`, etc.)
+1. **CLI** — Direct terminal usage (`mneme search`, `mneme save`, etc.)
 2. **HTTP API** — REST API on port 7437 for plugins and integrations
 3. **MCP Server** — stdio transport for any MCP-compatible agent
-4. **TUI** — Interactive terminal UI for browsing memories (`engram tui`)
+4. **TUI** — Interactive terminal UI for browsing memories (`mneme tui`)
 
 ---
 
 ## Project Structure
 
 ```
-engram/
+mneme/
 ├── cmd/engram/main.go              # CLI entrypoint — all commands
 ├── internal/
 │   ├── store/store.go              # Core: SQLite + FTS5 + all data operations
@@ -87,22 +87,22 @@ engram/
 ## CLI Commands
 
 ```
-engram serve [port]       Start HTTP API server (default: 7437)
-engram mcp                Start MCP server (stdio transport)
-engram tui                Launch interactive terminal UI
-engram search <query>     Search memories [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]
-engram save <title> <msg> Save a memory [--type TYPE] [--project PROJECT] [--scope SCOPE] [--topic TOPIC_KEY]
-engram timeline <obs_id>  Show chronological context around an observation [--before N] [--after N]
-engram context [project]  Show recent context from previous sessions
-engram stats              Show memory system statistics
-engram export [file]      Export all memories to JSON (default: engram-export.json)
-engram import <file>      Import memories from a JSON export file
-engram sync               Export new memories as chunk [--import] [--status] [--project NAME] [--all]
-engram projects list      Show all projects with obs/session/prompt counts
-engram projects consolidate  Interactive merge of similar project names [--all] [--dry-run]
-engram projects prune     Remove projects with 0 observations [--dry-run]
-engram version            Print version
-engram help               Show help
+mneme serve [port]       Start HTTP API server (default: 7437)
+mneme mcp                Start MCP server (stdio transport)
+mneme tui                Launch interactive terminal UI
+mneme search <query>     Search memories [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]
+mneme save <title> <msg> Save a memory [--type TYPE] [--project PROJECT] [--scope SCOPE] [--topic TOPIC_KEY]
+mneme timeline <obs_id>  Show chronological context around an observation [--before N] [--after N]
+mneme context [project]  Show recent context from previous sessions
+mneme stats              Show memory system statistics
+mneme export [file]      Export all memories to JSON (default: engram-export.json)
+mneme import <file>      Import memories from a JSON export file
+mneme sync               Export new memories as chunk [--import] [--status] [--project NAME] [--all]
+mneme projects list      Show all projects with obs/session/prompt counts
+mneme projects consolidate  Interactive merge of similar project names [--all] [--dry-run]
+mneme projects prune     Remove projects with 0 observations [--dry-run]
+mneme version            Print version
+mneme help               Show help
 ```
 
 ### Environment Variables
@@ -134,7 +134,7 @@ The following code is an example of the `~/.config/systemd/user/engram.service` 
 
 ```shell
 [Unit]
-Description=Engram Memory Server
+Description=Mneme Memory Server
 After=network.target
 
 [Service]
@@ -208,7 +208,7 @@ All endpoints return JSON. Server listens on `127.0.0.1:7437`.
 
 ### Health
 
-- `GET /health` — Returns `{"status": "ok", "service": "engram", "version": "0.1.0"}`
+- `GET /health` — Returns `{"status": "ok", "service": "mneme", "version": "0.1.0"}`
 
 ### Sessions
 
@@ -339,7 +339,7 @@ Extract structured learnings from text output. Looks for `## Key Learnings:` sec
 
 ## Project Name Normalization
 
-Engram automatically prevents project name drift — the same project saved under different names (`"engram"` vs `"Engram"` vs `"engram-memory"`) by different clients or users.
+Mneme automatically prevents project name drift — the same project saved under different names (`"mneme"` vs `"Mneme"` vs `"mneme-memory"`) by different clients or users.
 
 ### Automatic normalization
 
@@ -356,11 +356,11 @@ The MCP server auto-detects the project name at startup using a priority chain:
 
 ### Similar-project warnings
 
-When saving to a project that doesn't exist yet, Engram checks for similar existing project names (Levenshtein distance, substring, case-insensitive matching) and warns the agent if a likely variant already exists.
+When saving to a project that doesn't exist yet, Mneme checks for similar existing project names (Levenshtein distance, substring, case-insensitive matching) and warns the agent if a likely variant already exists.
 
 ### Retroactive cleanup
 
-Use `engram projects consolidate` to interactively merge variant project names, or `mem_merge_projects` for agent-driven consolidation.
+Use `mneme projects consolidate` to interactively merge variant project names, or `mem_merge_projects` for agent-driven consolidation.
 
 ---
 
@@ -384,7 +384,7 @@ Add to any agent's config:
 
 ## Memory Protocol Full Text
 
-The Memory Protocol teaches agents **when** and **how** to use Engram's MCP tools. Without it, the agent has the tools but no behavioral guidance. Add this to your agent's prompt file (see README for per-agent locations).
+The Memory Protocol teaches agents **when** and **how** to use Mneme's MCP tools. Without it, the agent has the tools but no behavioral guidance. Add this to your agent's prompt file (see README for per-agent locations).
 
 ### WHEN TO SAVE (mandatory — not optional)
 
@@ -455,7 +455,7 @@ This is NOT optional. If you skip this, the next session starts blind.
 
 ### PASSIVE CAPTURE — automatic learning extraction
 
-When completing a task or subtask, include a `## Key Learnings:` section at the end of your response with numbered items. Engram will automatically extract and save these as observations.
+When completing a task or subtask, include a `## Key Learnings:` section at the end of your response with numbered items. Mneme will automatically extract and save these as observations.
 
 Example:
 ```
@@ -511,18 +511,18 @@ Separate table captures what the USER asked (not just tool calls). Gives future 
 
 Share memories across machines, backup, or migrate:
 
-- `engram export` — JSON dump of all sessions, observations, prompts
-- `engram import <file>` — Load from JSON, sessions use INSERT OR IGNORE (skip duplicates), atomic transaction
+- `mneme export` — JSON dump of all sessions, observations, prompts
+- `mneme import <file>` — Load from JSON, sessions use INSERT OR IGNORE (skip duplicates), atomic transaction
 
 ### 6. Git Sync (Chunked)
 
 Share memories through git repositories using compressed chunks with a manifest index.
 
-- `engram sync` — Exports new memories as a gzipped JSONL chunk to `.engram/chunks/`
-- `engram sync --all` — Exports ALL memories from every project (ignores directory-based filter)
-- `engram sync --import` — Imports chunks listed in the manifest that haven't been imported yet
-- `engram sync --status` — Shows how many chunks exist locally vs remotely, and how many are pending import
-- `engram sync --project NAME` — Filters export to a specific project
+- `mneme sync` — Exports new memories as a gzipped JSONL chunk to `.engram/chunks/`
+- `mneme sync --all` — Exports ALL memories from every project (ignores directory-based filter)
+- `mneme sync --import` — Imports chunks listed in the manifest that haven't been imported yet
+- `mneme sync --status` — Shows how many chunks exist locally vs remotely, and how many are pending import
+- `mneme sync --project NAME` — Filters export to a specific project
 
 **Architecture**:
 ```
@@ -536,13 +536,13 @@ Share memories through git repositories using compressed chunks with a manifest 
 ```
 
 **Why chunks?**
-- Each `engram sync` creates a NEW chunk — old chunks are never modified
+- Each `mneme sync` creates a NEW chunk — old chunks are never modified
 - No merge conflicts: each dev creates independent chunks, git just adds files
 - Chunks are content-hashed (SHA-256 prefix) — each chunk is imported only once
 - The manifest is the only file git diffs — it's small and append-only
 - Compressed: a chunk with 8 sessions + 10 observations = ~2KB
 
-**Auto-import**: The OpenCode plugin detects `.engram/manifest.json` at startup and runs `engram sync --import` to load any new chunks. Clone a repo → open OpenCode → team memories are loaded.
+**Auto-import**: The OpenCode plugin detects `.engram/manifest.json` at startup and runs `mneme sync --import` to load any new chunks. Clone a repo → open OpenCode → team memories are loaded.
 
 **Tracking**: The local DB stores a `sync_chunks` table with chunk IDs that have been imported. This prevents re-importing the same data if `sync --import` runs multiple times.
 
@@ -588,11 +588,11 @@ The plugin still counts tool calls per session (for session end summary stats) b
 
 ## OpenCode Plugin
 
-Install with `engram setup opencode` — this copies the plugin to `~/.config/opencode/plugins/engram.ts` AND auto-registers the MCP server in `opencode.json`.
+Install with `mneme setup opencode` — this copies the plugin to `~/.config/opencode/plugins/engram.ts` AND auto-registers the MCP server in `opencode.json`.
 
 A thin TypeScript adapter that:
 
-1. **Auto-starts** the engram binary if not running
+1. **Auto-starts** the mneme binary if not running
 2. **Auto-imports** git-synced memories from `.engram/memories.json` if present in the project
 3. **Captures events**: `session.created`, `session.idle`, `session.deleted`, `message.updated`
 4. **Tracks tool count**: Counts tool calls per session (for session end stats), but does NOT persist raw tool observations
@@ -648,8 +648,8 @@ The `tool.execute.after` hook receives:
 ### From source
 
 ```bash
-git clone https://github.com/alanbuscaglia/engram.git
-cd engram
+git clone https://github.com/Edcko/Mneme.git
+cd Mneme
 go build -o engram ./cmd/engram
 go install ./cmd/engram
 ```
@@ -688,3 +688,4 @@ Key differences from claude-mem:
 - FTS5 instead of ChromaDB
 - Agent-driven compression instead of separate LLM calls
 - Simpler architecture (single binary, embedded web dashboard)
+- Knowledge graph with bi-temporal relations (Mneme extension)

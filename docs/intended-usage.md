@@ -4,19 +4,19 @@
 
 ---
 
-Engram is persistent memory for AI coding agents. It saves decisions, discoveries, bug fixes, and context across sessions -- automatically. This page explains how it's meant to be used. Not the API, not the architecture -- just the mental model.
+Mneme is persistent memory for AI coding agents. It saves decisions, discoveries, bug fixes, and context across sessions -- automatically. This page explains how it's meant to be used. Not the API, not the architecture -- just the mental model.
 
 ---
 
 ## If You Installed via gentle-ai -- You're Done
 
-Engram is already configured. Your AI agent saves and retrieves memories on its own.
+Mneme is already configured. Your AI agent saves and retrieves memories on its own.
 
-You never need to configure it, inspect it, or interact with it directly. If engram is working correctly, you won't even notice it's there. That's the point.
+You never need to configure it, inspect it, or interact with it directly. If mneme is working correctly, you won't even notice it's there. That's the point.
 
 ---
 
-## If You're Integrating Engram Into Your Agent
+## If You're Integrating Mneme Into Your Agent
 
 Install the plugin (Claude Code, OpenCode) or use the preset. The memory protocol is already included -- it tells your agent what to save, when to search, and how to manage sessions.
 
@@ -28,9 +28,9 @@ That's it. There is no step two.
 
 ## The Golden Rule
 
-Engram is infrastructure. Like a good database, you set it up once and forget about it.
+Mneme is infrastructure. Like a good database, you set it up once and forget about it.
 
-If you're thinking about engram while working, something went wrong. It should be invisible.
+If you're thinking about mneme while working, something went wrong. It should be invisible.
 
 ---
 
@@ -38,7 +38,7 @@ If you're thinking about engram while working, something went wrong. It should b
 
 | Do | Don't |
 |----|-------|
-| Install via gentle-ai, plugin, or preset | Manually inspect or edit engram's storage |
+| Install via gentle-ai, plugin, or preset | Manually inspect or edit mneme's storage |
 | Trust that your agent is saving context for you | Try to manage what the agent saves |
 | Just start coding -- memory happens in the background | Build custom memory protocols -- use the one that ships with the plugin |
 | Re-run the installer to update | Worry about what's being saved or when |

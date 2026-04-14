@@ -1,7 +1,7 @@
-// Package mcp implements the Model Context Protocol server for Engram.
+// Package mcp implements the Model Context Protocol server for Mneme.
 //
 // This exposes memory tools via MCP stdio transport so ANY agent
-// (OpenCode, Claude Code, Cursor, Windsurf, etc.) can use Engram's
+// (OpenCode, Claude Code, Cursor, Windsurf, etc.) can use Mneme's
 // persistent memory just by adding it as an MCP server.
 //
 // Tool profiles allow agents to load only the tools they need:
@@ -130,10 +130,11 @@ func NewServer(s *store.Store) *server.MCPServer {
 	return NewServerWithConfig(s, MCPConfig{}, nil)
 }
 
-// serverInstructions tells MCP clients when to use Engram's tools.
+//	serverInstructions tells MCP clients when to use Mneme's tools.
+//
 // 6 core tools are eager (always in context). The rest are deferred
 // and require ToolSearch to load.
-const serverInstructions = `Engram provides persistent memory that survives across sessions and compactions.
+const serverInstructions = `Mneme provides persistent memory that survives across sessions and compactions.
 
 CORE TOOLS (always available — use without ToolSearch):
   mem_save — save decisions, bugs, discoveries, conventions PROACTIVELY (do not wait to be asked)
@@ -611,7 +612,7 @@ Duplicates are automatically detected and skipped — safe to call multiple time
 	if shouldRegister("mem_merge_projects", allowlist) {
 		srv.AddTool(
 			mcp.NewTool("mem_merge_projects",
-				mcp.WithDescription("Merge memories from multiple project name variants into one canonical name. Use when you discover project name drift (e.g. 'Engram' and 'engram' should be the same project). DESTRUCTIVE — moves all records from source names to the canonical name."),
+				mcp.WithDescription("Merge memories from multiple project name variants into one canonical name. Use when you discover project name drift (e.g. 'Mneme' and 'mneme' should be the same project). DESTRUCTIVE — moves all records from source names to the canonical name."),
 				mcp.WithDeferLoading(true),
 				mcp.WithTitleAnnotation("Merge Projects"),
 				mcp.WithReadOnlyHintAnnotation(false),
@@ -620,11 +621,11 @@ Duplicates are automatically detected and skipped — safe to call multiple time
 				mcp.WithOpenWorldHintAnnotation(false),
 				mcp.WithString("from",
 					mcp.Required(),
-					mcp.Description("Comma-separated list of project names to merge FROM (e.g. 'Engram,engram-memory,ENGRAM')"),
+					mcp.Description("Comma-separated list of project names to merge FROM (e.g. 'Mneme,mneme-memory,MNEME')"),
 				),
 				mcp.WithString("to",
 					mcp.Required(),
-					mcp.Description("The canonical project name to merge INTO (e.g. 'engram')"),
+					mcp.Description("The canonical project name to merge INTO (e.g. 'mneme')"),
 				),
 			),
 			handleMergeProjects(s),

@@ -21,9 +21,9 @@
   <em>The agent proactively calls <code>mem_save</code> after significant work — structured, searchable, no noise.</em>
 </p>
 
-Engram trusts the **agent** to decide what's worth remembering — not a firehose of raw tool calls.
+Mneme trusts the **agent** to decide what's worth remembering — not a firehose of raw tool calls.
 
-### The Agent Saves, Engram Stores
+### The Agent Saves, Mneme Stores
 
 ```
 1. Agent completes significant work (bugfix, architecture decision, etc.)
@@ -31,7 +31,7 @@ Engram trusts the **agent** to decide what's worth remembering — not a firehos
    - title: "Fixed N+1 query in user list"
    - type: "bugfix"
    - content: What/Why/Where/Learned format
-3. Engram persists to SQLite with FTS5 indexing
+3. Mneme persists to SQLite with FTS5 indexing
 4. Next session: agent searches memory, gets relevant context
 ```
 
@@ -119,8 +119,8 @@ Different topics should use different keys (e.g. `architecture/auth-model` vs `b
 ## Project Structure
 
 ```
-engram/
-├── cmd/engram/main.go              # CLI entrypoint
+mneme/
+├── cmd/mneme/main.go              # CLI entrypoint
 ├── internal/
 │   ├── store/store.go              # Core: SQLite + FTS5 + all data ops
 │   ├── server/server.go            # HTTP REST API (port 7437)
@@ -142,7 +142,7 @@ engram/
 │       ├── hooks/hooks.json
 │       ├── scripts/                # session-start, post-compaction, subagent-stop, session-stop
 │       └── skills/memory/SKILL.md
-├── skills/                         # Contributor AI skills (repo-wide standards + Engram-specific guardrails)
+├── skills/                         # Contributor AI skills (repo-wide standards + Mneme-specific guardrails)
 ├── setup.sh                        # Links repo skills into .claude/.codex/.gemini (project-local)
 ├── assets/                         # Screenshots and media
 ├── DOCS.md                         # Full technical documentation
@@ -156,21 +156,21 @@ engram/
 ## CLI Reference
 
 ```
-engram setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
-engram serve [port]       Start HTTP API server (default: 7437)
-engram mcp                Start MCP server (stdio transport)
-engram tui                Launch interactive terminal UI
-engram search <query>     Search memories
-engram save <title> <msg> Save a memory
-engram timeline <obs_id>  Chronological context around an observation
-engram context [project]  Recent context from previous sessions
-engram stats              Memory statistics
-engram export [file]      Export all memories to JSON
-engram import <file>      Import memories from JSON
-engram sync               Export new memories as compressed chunk to .engram/
-engram sync --all         Export ALL projects (ignore directory-based filter)
-engram projects list      Show all projects with obs/session/prompt counts
-engram projects consolidate  Interactive merge of similar project names [--all] [--dry-run]
-engram projects prune     Remove projects with 0 observations [--dry-run]
-engram version            Show version
+mneme setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
+mneme serve [port]       Start HTTP API server (default: 7437)
+mneme mcp                Start MCP server (stdio transport)
+mneme tui                Launch interactive terminal UI
+mneme search <query>     Search memories
+mneme save <title> <msg> Save a memory
+mneme timeline <obs_id>  Chronological context around an observation
+mneme context [project]  Recent context from previous sessions
+mneme stats              Memory statistics
+mneme export [file]      Export all memories to JSON
+mneme import <file>      Import memories from JSON
+mneme sync               Export new memories as compressed chunk to .engram/
+mneme sync --all         Export ALL projects (ignore directory-based filter)
+mneme projects list      Show all projects with obs/session/prompt counts
+mneme projects consolidate  Interactive merge of similar project names [--all] [--dry-run]
+mneme projects prune     Remove projects with 0 observations [--dry-run]
+mneme version            Show version
 ```

@@ -2,21 +2,27 @@
 
 # Agent Setup
 
-Engram works with **any MCP-compatible agent**. Pick your agent below.
+Mneme works with **any MCP-compatible agent**. Pick your agent below.
 
 ## Quick Reference
 
 | Agent | One-liner | Manual Config |
 |-------|-----------|---------------|
-| Claude Code | `claude plugin marketplace add Gentleman-Programming/engram && claude plugin install engram` | [Details](#claude-code) |
-| OpenCode | `engram setup opencode` | [Details](#opencode) |
-| Gemini CLI | `engram setup gemini-cli` | [Details](#gemini-cli) |
-| Codex | `engram setup codex` | [Details](#codex) |
+| Claude Code | `claude plugin marketplace add Edcko/Mneme && claude plugin install mneme` | [Details](#claude-code) |
+| OpenCode | `mneme setup opencode` | [Details](#opencode) |
+| Gemini CLI | `mneme setup gemini-cli` | [Details](#gemini-cli) |
+| Codex | `mneme setup codex` | [Details](#codex) |
 | VS Code | `code --add-mcp '{"name":"engram","command":"engram","args":["mcp"]}'` | [Details](#vs-code-copilot--claude-code-extension) |
 | Antigravity | Manual JSON config | [Details](#antigravity) |
 | Cursor | Manual JSON config | [Details](#cursor) |
 | Windsurf | Manual JSON config | [Details](#windsurf) |
-| Any MCP agent | `engram mcp` (stdio) | [Details](#any-other-mcp-agent) |
+| Any MCP agent | `mneme mcp` (stdio) | [Details](#any-other-mcp-agent) |
+
+---
+
+## OpenCode
+
+> **Prerequisite**: Install the `engram` binary first (via [Homebrew](INSTALLATION.md#homebrew-macos--linux), [Windows binary](INSTALLATION.md#windows), [binary download](INSTALLATION.md#download-binary-all-platforms), or [source](INSTALLATION.md#install-from-source-macos--linux)). The plugin needs it for the MCP server and session tracking.
 
 ---
 
@@ -27,7 +33,7 @@ Engram works with **any MCP-compatible agent**. Pick your agent below.
 **Recommended: Full setup with one command** — installs the plugin AND registers the MCP server in `opencode.json` automatically:
 
 ```bash
-engram setup opencode
+mneme setup opencode
 ```
 
 This does two things:
@@ -37,10 +43,10 @@ This does two things:
 The plugin also needs the HTTP server running for session tracking:
 
 ```bash
-engram serve &
+mneme serve &
 ```
 
-> **Windows**: On Windows, `engram setup opencode` writes to `%APPDATA%\opencode\plugins\` and `%APPDATA%\opencode\opencode.json` automatically. To run the server in the background: `Start-Process engram -ArgumentList "serve" -WindowStyle Hidden` (PowerShell) or just run `engram serve` in a separate terminal.
+> **Windows**: On Windows, `mneme setup opencode` writes to `%APPDATA%\opencode\plugins\` and `%APPDATA%\opencode\opencode.json` automatically. To run the server in the background: `Start-Process engram -ArgumentList "serve" -WindowStyle Hidden` (PowerShell) or just run `engram serve` in a separate terminal.
 
 **Alternative: Manual MCP-only setup** (no plugin, just the 13 memory tools):
 
@@ -69,16 +75,16 @@ See [Plugins → OpenCode Plugin](PLUGINS.md#opencode-plugin) for details on wha
 **Option A: Plugin via marketplace (recommended)** — full session management, auto-import, compaction recovery, and Memory Protocol skill:
 
 ```bash
-claude plugin marketplace add Gentleman-Programming/engram
-claude plugin install engram
+claude plugin marketplace add Edcko/Mneme
+claude plugin install mneme
 ```
 
 That's it. The plugin registers the MCP server, hooks, and Memory Protocol skill automatically.
 
-**Option B: Plugin via `engram setup`** — same plugin, installed from the embedded binary:
+**Option B: Plugin via `mneme setup`** — same plugin, installed from the embedded binary:
 
 ```bash
-engram setup claude-code
+mneme setup claude-code
 ```
 
 During setup, you'll be asked whether to add engram tools to `~/.claude/settings.json` permissions allowlist — this prevents Claude Code from prompting for confirmation on every memory operation.
@@ -98,7 +104,7 @@ Add to your `.claude/settings.json` (project) or `~/.claude/settings.json` (glob
 }
 ```
 
-With bare MCP, add a [Surviving Compaction](#surviving-compaction-recommended) prompt to your `CLAUDE.md` so the agent remembers to use Engram after context resets.
+With bare MCP, add a [Surviving Compaction](#surviving-compaction-recommended) prompt to your `CLAUDE.md` so the agent remembers to use Mneme after context resets.
 
 > **Windows note:** The Claude Code plugin hooks use bash scripts. On Windows, Claude Code runs hooks through Git Bash (bundled with [Git for Windows](https://gitforwindows.org/)) or WSL. If hooks don't fire, ensure `bash` is available in your `PATH`. Alternatively, use **Option C (Bare MCP)** which works natively on Windows without any shell dependency.
 
@@ -111,15 +117,15 @@ See [Plugins → Claude Code Plugin](PLUGINS.md#claude-code-plugin) for details 
 Recommended: one command to set up MCP + compaction recovery instructions:
 
 ```bash
-engram setup gemini-cli
+mneme setup gemini-cli
 ```
 
-`engram setup gemini-cli` now does three things:
+`mneme setup gemini-cli` now does three things:
 - Registers `mcpServers.engram` in `~/.gemini/settings.json` (Windows: `%APPDATA%\gemini\settings.json`)
-- Writes `~/.gemini/system.md` with the Engram Memory Protocol (includes post-compaction recovery)
+- Writes `~/.gemini/system.md` with the Mneme Memory Protocol (includes post-compaction recovery)
 - Ensures `~/.gemini/.env` contains `GEMINI_SYSTEM_MD=1` so Gemini actually loads that system prompt
 
-> `engram setup gemini-cli` automatically writes the full Memory Protocol to `~/.gemini/system.md`, so the agent knows exactly when to save, search, and close sessions. No additional configuration needed.
+> `mneme setup gemini-cli` automatically writes the full Memory Protocol to `~/.gemini/system.md`, so the agent knows exactly when to save, search, and close sessions. No additional configuration needed.
 
 Manual alternative: add to your `~/.gemini/settings.json` (global) or `.gemini/settings.json` (project); on Windows: `%APPDATA%\gemini\settings.json`:
 
@@ -147,15 +153,15 @@ gemini mcp add engram engram mcp
 Recommended: one command to set up MCP + compaction recovery instructions:
 
 ```bash
-engram setup codex
+mneme setup codex
 ```
 
-`engram setup codex` now does three things:
+`mneme setup codex` now does three things:
 - Registers `[mcp_servers.engram]` in `~/.codex/config.toml` (Windows: `%APPDATA%\codex\config.toml`)
-- Writes `~/.codex/engram-instructions.md` with the Engram Memory Protocol
+- Writes `~/.codex/engram-instructions.md` with the Mneme Memory Protocol
 - Writes `~/.codex/engram-compact-prompt.md` and points `experimental_compact_prompt_file` to it, so compaction output includes a required memory-save instruction
 
-> `engram setup codex` automatically writes the full Memory Protocol to `~/.codex/engram-instructions.md` and a compaction recovery prompt to `~/.codex/engram-compact-prompt.md`. No additional configuration needed.
+> `mneme setup codex` automatically writes the full Memory Protocol to `~/.codex/engram-instructions.md` and a compaction recovery prompt to `~/.codex/engram-compact-prompt.md`. No additional configuration needed.
 
 Manual alternative: add to your `~/.codex/config.toml` (Windows: `%APPDATA%\codex\config.toml`):
 
@@ -310,12 +316,12 @@ The pattern is always the same — point your agent's MCP config to `engram mcp`
 
 ## Surviving Compaction (Recommended)
 
-When your agent compacts (summarizes long conversations to free context), it starts fresh — and might forget about Engram. To make memory truly resilient, add this to your agent's system prompt or config file:
+When your agent compacts (summarizes long conversations to free context), it starts fresh — and might forget about Mneme. To make memory truly resilient, add this to your agent's system prompt or config file:
 
 **For Claude Code** (`CLAUDE.md`):
 ```markdown
 ## Memory
-You have access to Engram persistent memory via MCP tools (mem_save, mem_search, mem_session_summary, etc.).
+You have access to Mneme persistent memory via MCP tools (mem_save, mem_search, mem_session_summary, etc.).
 - Save proactively after significant work — don't wait to be asked.
 - After any compaction or context reset, call `mem_context` to recover session state before continuing.
 ```
@@ -329,7 +335,7 @@ Save memories proactively with mem_save after significant work.
 **For Gemini CLI** (`GEMINI.md`):
 ```markdown
 ## Memory
-You have access to Engram persistent memory via MCP tools (mem_save, mem_search, mem_session_summary, etc.).
+You have access to Mneme persistent memory via MCP tools (mem_save, mem_search, mem_session_summary, etc.).
 - Save proactively after significant work — don't wait to be asked.
 - After any compaction or context reset, call `mem_context` to recover session state before continuing.
 ```
@@ -337,7 +343,7 @@ You have access to Engram persistent memory via MCP tools (mem_save, mem_search,
 **For VS Code** (`Code/User/prompts/*.instructions.md` or custom instructions):
 ```markdown
 ## Memory
-You have access to Engram persistent memory via MCP tools (mem_save, mem_search, mem_session_summary, etc.).
+You have access to Mneme persistent memory via MCP tools (mem_save, mem_search, mem_session_summary, etc.).
 - Save proactively after significant work — don't wait to be asked.
 - After any compaction or context reset, call `mem_context` to recover session state before continuing.
 ```
@@ -345,7 +351,7 @@ You have access to Engram persistent memory via MCP tools (mem_save, mem_search,
 **For Antigravity** (`~/.gemini/GEMINI.md` or `.agent/rules/`):
 ```markdown
 ## Memory
-You have access to Engram persistent memory via MCP tools (mem_save, mem_search, mem_session_summary, etc.).
+You have access to Mneme persistent memory via MCP tools (mem_save, mem_search, mem_session_summary, etc.).
 - Save proactively after significant work — don't wait to be asked.
 - After any compaction or context reset, call `mem_context` to recover session state before continuing.
 ```
@@ -359,13 +365,13 @@ The `alwaysApply: true` frontmatter tells Cursor to load this rule in every conv
 alwaysApply: true
 ---
 
-You have access to Engram persistent memory (mem_save, mem_search, mem_context).
+You have access to Mneme persistent memory (mem_save, mem_search, mem_context).
 Save proactively after significant work. After context resets, call mem_context to recover state.
 ```
 
 **For Windsurf** (`.windsurfrules`):
 ```
-You have access to Engram persistent memory (mem_save, mem_search, mem_context).
+You have access to Mneme persistent memory (mem_save, mem_search, mem_context).
 Save proactively after significant work. After context resets, call mem_context to recover state.
 ```
 
