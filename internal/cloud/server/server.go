@@ -393,14 +393,11 @@ func (s *Server) handleGenerateAPIKey(w http.ResponseWriter, r *http.Request, pr
 		_ = json.NewDecoder(r.Body).Decode(&body)
 	}
 
-	// Register in the store (DB)
-	testStore, isTest := s.store.(*store.TestStore)
-	if isTest {
-		if err := testStore.CreateAPIKey(p.ID, rawKey, body.Label); err != nil {
-			log.Printf("ERROR CreateAPIKey: %v", err)
-			writeError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
+	// Persist the API key hash in the store
+	if err := s.store.CreateAPIKey(r.Context(), p.ID, hash, body.Label); err != nil {
+		log.Printf("ERROR CreateAPIKey: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
 	}
 
 	// Register in auth.Manager (in-memory) so the middleware can validate it

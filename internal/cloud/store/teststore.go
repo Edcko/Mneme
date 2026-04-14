@@ -7,6 +7,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -202,14 +203,21 @@ func (s *TestStore) Authenticate(rawKey string) (*Project, error) {
 	return &p, nil
 }
 
-// CreateAPIKey is a helper to register an API key for a project in tests.
-func (s *TestStore) CreateAPIKey(projectID int64, rawKey, label string) error {
-	keyHash := hashKey(rawKey)
-	_, err := s.db.Exec(`
+// CreateAPIKey stores a new API key hash for a project.
+// The keyHash must be the SHA-256 hex digest of the raw key.
+// Returns ErrDuplicate if the key hash already exists.
+func (s *TestStore) CreateAPIKey(ctx context.Context, projectID int64, keyHash, label string) error {
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO api_keys (project_id, key_hash, label)
 		VALUES (?, ?, ?)
 	`, projectID, keyHash, label)
-	return err
+	if err != nil {
+		if isDuplicate(err) {
+			return ErrDuplicate
+		}
+		return fmt.Errorf("create api key: %w", err)
+	}
+	return nil
 }
 
 // ─── TestStore Manifest Operations ───────────────────────────────────────────

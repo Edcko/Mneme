@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -124,7 +125,7 @@ func TestAuthenticate(t *testing.T) {
 	}
 
 	// Register an API key for the project
-	if err := s.CreateAPIKey(p.ID, "my-api-key-123", "test-key"); err != nil {
+	if err := s.CreateAPIKey(context.Background(), p.ID, hashKey("my-api-key-123"), "test-key"); err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
 
@@ -157,13 +158,78 @@ func TestAuthenticateWrongKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	if err := s.CreateAPIKey(p.ID, "correct-key", "label"); err != nil {
+	if err := s.CreateAPIKey(context.Background(), p.ID, hashKey("correct-key"), "label"); err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
 
 	_, err = s.Authenticate("wrong-key")
 	if err != ErrUnauthorized {
 		t.Errorf("error = %v, want ErrUnauthorized", err)
+	}
+}
+
+// ─── CreateAPIKey ─────────────────────────────────────────────────────────────
+
+func TestCreateAPIKey(t *testing.T) {
+	s := newTestStore(t)
+
+	p, err := s.CreateProject("createkey-test", "c@t.com", "s")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	keyHash := hashKey("my-test-key-abc")
+	if err := s.CreateAPIKey(context.Background(), p.ID, keyHash, "ci-key"); err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+
+	// Verify the key works with Authenticate
+	authProject, err := s.Authenticate("my-test-key-abc")
+	if err != nil {
+		t.Fatalf("Authenticate with created key: %v", err)
+	}
+	if authProject.ID != p.ID {
+		t.Errorf("project ID = %d, want %d", authProject.ID, p.ID)
+	}
+}
+
+func TestCreateAPIKeyDuplicate(t *testing.T) {
+	s := newTestStore(t)
+
+	p, err := s.CreateProject("createkey-dup", "c@t.com", "s")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	keyHash := hashKey("unique-key-xyz")
+	if err := s.CreateAPIKey(context.Background(), p.ID, keyHash, "first"); err != nil {
+		t.Fatalf("first CreateAPIKey: %v", err)
+	}
+
+	// Same hash again should fail with ErrDuplicate
+	err = s.CreateAPIKey(context.Background(), p.ID, keyHash, "second")
+	if err != ErrDuplicate {
+		t.Errorf("duplicate CreateAPIKey error = %v, want ErrDuplicate", err)
+	}
+}
+
+func TestCreateAPIKeyEmptyLabel(t *testing.T) {
+	s := newTestStore(t)
+
+	p, err := s.CreateProject("createkey-nolabel", "c@t.com", "s")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	keyHash := hashKey("key-no-label")
+	if err := s.CreateAPIKey(context.Background(), p.ID, keyHash, ""); err != nil {
+		t.Fatalf("CreateAPIKey with empty label: %v", err)
+	}
+
+	// Key should still authenticate
+	_, err = s.Authenticate("key-no-label")
+	if err != nil {
+		t.Fatalf("Authenticate with no-label key: %v", err)
 	}
 }
 

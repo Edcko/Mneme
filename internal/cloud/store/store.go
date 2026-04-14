@@ -13,6 +13,7 @@ package store
 
 import (
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -110,6 +111,11 @@ type CloudStore interface {
 	// Authenticate validates an API key and returns the associated project.
 	// Returns ErrUnauthorized if the key is invalid.
 	Authenticate(rawKey string) (*Project, error)
+
+	// CreateAPIKey stores a new API key hash for a project.
+	// The keyHash must be the SHA-256 hex digest of the raw key.
+	// Returns ErrDuplicate if the key hash already exists.
+	CreateAPIKey(ctx context.Context, projectID int64, keyHash, label string) error
 
 	// Manifest operations
 
@@ -330,6 +336,22 @@ func (s *PGStore) Authenticate(rawKey string) (*Project, error) {
 		return nil, err
 	}
 	return &p, nil
+}
+
+// ─── PG API Key Operations ────────────────────────────────────────────────────
+
+func (s *PGStore) CreateAPIKey(ctx context.Context, projectID int64, keyHash, label string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO api_keys (project_id, key_hash, label)
+		VALUES ($1, $2, $3)
+	`, projectID, keyHash, label)
+	if err != nil {
+		if isDuplicate(err) {
+			return ErrDuplicate
+		}
+		return fmt.Errorf("create api key: %w", err)
+	}
+	return nil
 }
 
 // ─── PG Manifest Operations ──────────────────────────────────────────────────

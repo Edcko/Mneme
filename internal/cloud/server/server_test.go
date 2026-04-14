@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -71,7 +72,7 @@ func (e *testEnv) setupProject(t *testing.T, name string) (int64, string) {
 		t.Fatalf("GenerateAPIKey: %v", err)
 	}
 
-	if err := e.store.CreateAPIKey(p.ID, rawKey, "test-key"); err != nil {
+	if err := e.store.CreateAPIKey(context.Background(), p.ID, hash, "test-key"); err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
 
