@@ -119,18 +119,18 @@ mneme help               Show help
 
 ### Using systemd
 
-First you need add your engram binary to use in a global way. By example: `/usr/bin`, `/usr/local/bin` or `~/.local/bin`.
+First you need add your mneme binary to use in a global way. By example: `/usr/bin`, `/usr/local/bin` or `~/.local/bin`.
 In this documentation we will use `~/.local/bin`.
 
 1. First, move binary to `~/.local/bin` (Check if this is in your $PATH variable).
 2. Create a directory for you service with user scope and engram data: `mkdir -p ~/.engram ~/.config/systemd/user`.
-3. Create your service file in the following path: `~/.config/systemd/user/engram.service`.
+3. Create your service file in the following path: `~/.config/systemd/user/mneme.service`.
 4. Reload service list: `systemctl --user daemon-reload`.
-5. Enable your service: `systemctl --user enable engram`.
-6. Then start it: `systemctl --user start engram`.
-7. And finally check the logs: `journalctl --user -u engram -f`.
+5. Enable your service: `systemctl --user enable mneme`.
+6. Then start it: `systemctl --user start mneme`.
+7. And finally check the logs: `journalctl --user -u mneme -f`.
 
-The following code is an example of the `~/.config/systemd/user/engram.service` file:
+The following code is an example of the `~/.config/systemd/user/mneme.service` file:
 
 ```shell
 [Unit]
@@ -139,7 +139,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=%h
-ExecStart=%h/.local/bin/engram serve
+ExecStart=%h/.local/bin/mneme serve
 Restart=always
 RestartSec=3
 Environment=ENGRAM_DATA_DIR=%h/.engram
@@ -152,7 +152,7 @@ WantedBy=default.target
 
 ## Terminal UI (TUI)
 
-Interactive Bubbletea-based terminal UI. Launch with `engram tui`.
+Interactive Bubbletea-based terminal UI. Launch with `mneme tui`.
 
 Built with [Bubbletea](https://github.com/charmbracelet/bubbletea) v1, [Lipgloss](https://github.com/charmbracelet/lipgloss), and [Bubbles](https://github.com/charmbracelet/bubbles) components. Follows the Gentleman Bubbletea skill patterns.
 
@@ -373,7 +373,7 @@ Add to any agent's config:
   "mcp": {
     "engram": {
       "type": "stdio",
-      "command": "engram",
+      "command": "mneme",
       "args": ["mcp"]
     }
   }
@@ -650,13 +650,15 @@ The `tool.execute.after` hook receives:
 ```bash
 git clone https://github.com/Edcko/Mneme.git
 cd Mneme
-go build -o engram ./cmd/engram
+go build -o mneme ./cmd/engram
 go install ./cmd/engram
 ```
 
 ### Binary location
 
 After `go install`: `$GOPATH/bin/engram` (typically `~/go/bin/engram`)
+
+> **Note:** `go install` produces a binary named after the directory (`engram`). To get a `mneme` binary, use `go build -o mneme ./cmd/engram` instead, or rename the output.
 
 ### Data location
 

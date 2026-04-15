@@ -120,7 +120,7 @@ Different topics should use different keys (e.g. `architecture/auth-model` vs `b
 
 ```
 mneme/
-├── cmd/mneme/main.go              # CLI entrypoint
+├── cmd/engram/main.go              # CLI entrypoint
 ├── internal/
 │   ├── store/store.go              # Core: SQLite + FTS5 + all data ops
 │   ├── server/server.go            # HTTP REST API (port 7437)

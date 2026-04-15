@@ -1,15 +1,15 @@
-// Engram — Persistent memory for AI coding agents.
+// Mneme — Persistent memory for AI coding agents.
 //
 // Usage:
 //
-//	engram serve          Start HTTP + MCP server
-//	engram mcp            Start MCP server only (stdio transport)
-//	engram search <query> Search memories from CLI
-//	engram save           Save a memory from CLI
-//	engram context        Show recent context
-//	engram stats          Show memory stats
-//	engram graph          Explore knowledge graph (entities, relations, traverse)
-//	engram cloud serve    Start Mneme cloud server with dashboard
+//	mneme serve          Start HTTP + MCP server
+//	mneme mcp            Start MCP server only (stdio transport)
+//	mneme search <query> Search memories from CLI
+//	mneme save           Save a memory from CLI
+//	mneme context        Show recent context
+//	mneme stats          Show memory stats
+//	mneme graph          Explore knowledge graph (entities, relations, traverse)
+//	mneme cloud serve    Start Mneme cloud server with dashboard
 package main
 
 import (
@@ -222,7 +222,7 @@ func main() {
 	case "setup":
 		cmdSetup()
 	case "version", "--version", "-v":
-		fmt.Printf("engram %s\n", version)
+		fmt.Printf("mneme %s\n", version)
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -241,7 +241,7 @@ func cmdServe(cfg store.Config) {
 			port = n
 		}
 	}
-	// Allow: engram serve 8080
+	// Allow: mneme serve 8080
 	if len(os.Args) > 2 {
 		if n, err := strconv.Atoi(os.Args[2]); err == nil {
 			port = n
@@ -335,7 +335,7 @@ func cmdTUI(cfg store.Config) {
 
 func cmdSearch(cfg store.Config) {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: engram search <query> [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]")
+		fmt.Fprintln(os.Stderr, "usage: mneme search <query> [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]")
 		exitFunc(1)
 	}
 
@@ -411,7 +411,7 @@ func cmdSearch(cfg store.Config) {
 
 func cmdSave(cfg store.Config) {
 	if len(os.Args) < 4 {
-		fmt.Fprintln(os.Stderr, "usage: engram save <title> <content> [--type TYPE] [--project PROJECT] [--scope SCOPE] [--topic TOPIC_KEY]")
+		fmt.Fprintln(os.Stderr, "usage: mneme save <title> <content> [--type TYPE] [--project PROJECT] [--scope SCOPE] [--topic TOPIC_KEY]")
 		exitFunc(1)
 	}
 
@@ -476,7 +476,7 @@ func cmdSave(cfg store.Config) {
 
 func cmdTimeline(cfg store.Config) {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: engram timeline <observation_id> [--before N] [--after N]")
+		fmt.Fprintln(os.Stderr, "usage: mneme timeline <observation_id> [--before N] [--after N]")
 		exitFunc(1)
 	}
 
@@ -646,7 +646,7 @@ func cmdExport(cfg store.Config) {
 
 func cmdImport(cfg store.Config) {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: engram import <file.json>")
+		fmt.Fprintln(os.Stderr, "usage: mneme import <file.json>")
 		exitFunc(1)
 	}
 
@@ -786,7 +786,7 @@ func cmdSync(cfg store.Config) {
 }
 
 func cmdProjects(cfg store.Config) {
-	// Route: engram projects list | engram projects consolidate [--all] [--dry-run]
+	// Route: mneme projects list | mneme projects consolidate [--all] [--dry-run]
 	subCmd := "list"
 	if len(os.Args) > 2 {
 		subCmd = os.Args[2]
@@ -800,9 +800,9 @@ func cmdProjects(cfg store.Config) {
 		cmdProjectsList(cfg)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown projects subcommand: %s\n", subCmd)
-		fmt.Fprintln(os.Stderr, "usage: engram projects list")
-		fmt.Fprintln(os.Stderr, "       engram projects consolidate [--all] [--dry-run]")
-		fmt.Fprintln(os.Stderr, "       engram projects prune [--dry-run]")
+		fmt.Fprintln(os.Stderr, "usage: mneme projects list")
+		fmt.Fprintln(os.Stderr, "       mneme projects consolidate [--all] [--dry-run]")
+		fmt.Fprintln(os.Stderr, "       mneme projects prune [--dry-run]")
 		exitFunc(1)
 	}
 }
@@ -1324,17 +1324,17 @@ func cmdGraph(cfg store.Config) {
 }
 
 const graphUsage = `Usage:
-  engram graph entities [--type TYPE] [--project PROJECT] [--limit N]
+  mneme graph entities [--type TYPE] [--project PROJECT] [--limit N]
                       List entities in the knowledge graph
-  engram graph entity <id>
+  mneme graph entity <id>
                       Show entity detail and its active relations
-  engram graph search <query> [--type TYPE] [--project PROJECT] [--limit N]
+  mneme graph search <query> [--type TYPE] [--project PROJECT] [--limit N]
                       Search entities by name/summary (FTS5)
-  engram graph traverse <id> [--depth N] [--project PROJECT]
+  mneme graph traverse <id> [--depth N] [--project PROJECT]
                       BFS graph traversal from an entity
-  engram graph communities [--project PROJECT] [--limit N]
+  mneme graph communities [--project PROJECT] [--limit N]
                       List communities (clusters of connected entities)
-  engram graph reindex [--project PROJECT]
+  mneme graph reindex [--project PROJECT]
                       Reindex all observations to extract entities and relations
 
 Options:
@@ -1403,7 +1403,7 @@ func cmdGraphEntities(cfg store.Config) {
 
 func cmdGraphEntity(cfg store.Config) {
 	if len(os.Args) < 4 {
-		fmt.Fprintln(os.Stderr, "usage: engram graph entity <id>")
+		fmt.Fprintln(os.Stderr, "usage: mneme graph entity <id>")
 		exitFunc(1)
 	}
 
@@ -1465,7 +1465,7 @@ func cmdGraphEntity(cfg store.Config) {
 
 func cmdGraphSearch(cfg store.Config) {
 	if len(os.Args) < 4 {
-		fmt.Fprintln(os.Stderr, "usage: engram graph search <query> [--type TYPE] [--project PROJECT] [--limit N]")
+		fmt.Fprintln(os.Stderr, "usage: mneme graph search <query> [--type TYPE] [--project PROJECT] [--limit N]")
 		exitFunc(1)
 	}
 
@@ -1537,7 +1537,7 @@ func cmdGraphSearch(cfg store.Config) {
 
 func cmdGraphTraverse(cfg store.Config) {
 	if len(os.Args) < 4 {
-		fmt.Fprintln(os.Stderr, "usage: engram graph traverse <entity_id> [--depth N] [--project PROJECT]")
+		fmt.Fprintln(os.Stderr, "usage: mneme graph traverse <entity_id> [--depth N] [--project PROJECT]")
 		exitFunc(1)
 	}
 
@@ -1645,7 +1645,7 @@ func cmdGraphCommunities(cfg store.Config) {
 	}
 
 	if len(communities) == 0 {
-		fmt.Println("No communities found. Run 'engram graph rebuild' via MCP to detect communities.")
+		fmt.Println("No communities found. Run 'mneme graph rebuild' via MCP to detect communities.")
 		return
 	}
 
@@ -1756,7 +1756,7 @@ func cmdGraphReindex(cfg store.Config) {
 func cmdSetup() {
 	agents := setupSupportedAgents()
 
-	// If agent name given directly: engram setup opencode
+	// If agent name given directly: mneme setup opencode
 	if len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "-") {
 		result, err := setupInstallAgent(os.Args[2])
 		if err != nil {
@@ -1769,7 +1769,7 @@ func cmdSetup() {
 	}
 
 	// Interactive selection
-	fmt.Println("engram setup — Install agent plugin")
+	fmt.Println("mneme setup — Install agent plugin")
 	fmt.Println()
 	fmt.Println("Which agent do you want to set up?")
 	fmt.Println()
@@ -1807,7 +1807,7 @@ func printPostInstall(agent string) {
 	case "opencode":
 		fmt.Println("\nNext steps:")
 		fmt.Println("  1. Restart OpenCode — plugin + MCP server are ready")
-		fmt.Println("  2. Run 'engram serve &' for session tracking (HTTP API)")
+		fmt.Println("  2. Run 'mneme serve &' for session tracking (HTTP API)")
 	case "claude-code":
 		// Offer to add engram tools to the permissions allowlist
 		fmt.Print("\nAdd engram tools to ~/.claude/settings.json allowlist?\n")
@@ -1831,7 +1831,7 @@ func printPostInstall(agent string) {
 		fmt.Println("  1. Restart Claude Code — the plugin is active immediately")
 		fmt.Println("  2. Verify with: claude plugin list")
 		fmt.Println("  3. MCP config written to ~/.claude/mcp/engram.json using absolute binary path")
-		fmt.Println("     (survives plugin auto-updates; re-run 'engram setup claude-code' if you move the binary)")
+		fmt.Println("     (survives plugin auto-updates; re-run 'mneme setup claude-code' if you move the binary)")
 	case "gemini-cli":
 		fmt.Println("\nNext steps:")
 		fmt.Println("  1. Restart Gemini CLI so MCP config is reloaded")
@@ -1857,7 +1857,7 @@ func cmdCloud() {
 		cmdCloudServe()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown cloud subcommand: %s\n", subCmd)
-		fmt.Fprintln(os.Stderr, "usage: engram cloud serve [--port PORT] [--dsn DSN] [--secret SECRET]")
+		fmt.Fprintln(os.Stderr, "usage: mneme cloud serve [--port PORT] [--dsn DSN] [--secret SECRET]")
 		exitFunc(1)
 	}
 }
@@ -1891,7 +1891,7 @@ func cmdCloudServe() {
 
 	if dsn == "" {
 		fmt.Fprintln(os.Stderr, "error: --dsn is required")
-		fmt.Fprintln(os.Stderr, "usage: engram cloud serve [--port PORT] --dsn DSN [--secret SECRET]")
+		fmt.Fprintln(os.Stderr, "usage: mneme cloud serve [--port PORT] --dsn DSN [--secret SECRET]")
 		exitFunc(1)
 	}
 
@@ -1953,10 +1953,10 @@ func cmdCloudServe() {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 func printUsage() {
-	fmt.Printf(`engram v%s — Persistent memory for AI coding agents
+	fmt.Printf(`mneme v%s — Persistent memory for AI coding agents
 
 Usage:
-  engram <command> [arguments]
+  mneme <command> [arguments]
 
 Commands:
   serve [port]       Start HTTP API server (default: 7437)
@@ -1965,7 +1965,7 @@ Commands:
                         Profiles: agent (11 tools), graph (6 tools), admin (4 tools), all (default, 21)
                         Combine: --tools=agent,graph or pick individual tools
                         --project  Override detected project name (default: git remote → cwd)
-                        Example: engram mcp --tools=agent,graph
+                        Example: mneme mcp --tools=agent,graph
   tui                Launch interactive terminal UI
   search <query>     Search memories [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]
   save <title> <msg> Save a memory  [--type TYPE] [--project PROJECT] [--scope SCOPE]
@@ -2012,7 +2012,7 @@ MCP Configuration (add to your agent's config):
     "mcp": {
       "engram": {
         "type": "stdio",
-        "command": "engram",
+        "command": "mneme",
         "args": ["mcp", "--tools=agent,graph"]
       }
     }
@@ -2021,7 +2021,7 @@ MCP Configuration (add to your agent's config):
 }
 
 func fatal(err error) {
-	fmt.Fprintf(os.Stderr, "engram: %s\n", err)
+	fmt.Fprintf(os.Stderr, "mneme: %s\n", err)
 	exitFunc(1)
 }
 

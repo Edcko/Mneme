@@ -160,7 +160,7 @@ func TestPrintUsage(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected no stderr, got: %q", stderr)
 	}
-	if !strings.Contains(stdout, "engram vtest-version") {
+	if !strings.Contains(stdout, "mneme vtest-version") {
 		t.Fatalf("usage missing version: %q", stdout)
 	}
 	if !strings.Contains(stdout, "search <query>") || !strings.Contains(stdout, "setup [agent]") {
@@ -173,7 +173,7 @@ func TestPrintPostInstall(t *testing.T) {
 		agent   string
 		expects []string
 	}{
-		{agent: "opencode", expects: []string{"Restart OpenCode", "engram serve &"}},
+		{agent: "opencode", expects: []string{"Restart OpenCode", "mneme serve &"}},
 		{agent: "gemini-cli", expects: []string{"Restart Gemini CLI", "~/.gemini/settings.json"}},
 		{agent: "codex", expects: []string{"Restart Codex", "~/.codex/config.toml"}},
 		{agent: "unknown", expects: nil},
@@ -501,9 +501,9 @@ func TestMainVersionAndHelpAliases(t *testing.T) {
 		contains  string
 		notStderr bool
 	}{
-		{name: "version", arg: "version", contains: "engram 9.9.9-test", notStderr: true},
-		{name: "version short", arg: "-v", contains: "engram 9.9.9-test", notStderr: true},
-		{name: "version long", arg: "--version", contains: "engram 9.9.9-test", notStderr: true},
+		{name: "version", arg: "version", contains: "mneme 9.9.9-test", notStderr: true},
+		{name: "version short", arg: "-v", contains: "mneme 9.9.9-test", notStderr: true},
+		{name: "version long", arg: "--version", contains: "mneme 9.9.9-test", notStderr: true},
 		{name: "help", arg: "help", contains: "Usage:", notStderr: true},
 		{name: "help short", arg: "-h", contains: "Commands:", notStderr: true},
 		{name: "help long", arg: "--help", contains: "Environment:", notStderr: true},
@@ -536,7 +536,7 @@ func TestMainPrintsUpdateFailuresAndUpdates(t *testing.T) {
 		withArgs(t, "engram", "version")
 
 		stdout, stderr := captureOutput(t, func() { main() })
-		if !strings.Contains(stdout, "engram 1.10.7") {
+		if !strings.Contains(stdout, "mneme 1.10.7") {
 			t.Fatalf("stdout = %q", stdout)
 		}
 		if !strings.Contains(stderr, "Could not check for updates") {
@@ -552,7 +552,7 @@ func TestMainPrintsUpdateFailuresAndUpdates(t *testing.T) {
 		withArgs(t, "engram", "version")
 
 		stdout, stderr := captureOutput(t, func() { main() })
-		if !strings.Contains(stdout, "engram 1.10.7") {
+		if !strings.Contains(stdout, "mneme 1.10.7") {
 			t.Fatalf("stdout = %q", stdout)
 		}
 		if !strings.Contains(stderr, "Update available") {
@@ -565,7 +565,7 @@ func TestMainPrintsUpdateFailuresAndUpdates(t *testing.T) {
 		withArgs(t, "engram", "version")
 
 		stdout, stderr := captureOutput(t, func() { main() })
-		if !strings.Contains(stdout, "engram 1.10.7") {
+		if !strings.Contains(stdout, "mneme 1.10.7") {
 			t.Fatalf("stdout = %q", stdout)
 		}
 		if stderr != "" {
@@ -1138,7 +1138,7 @@ func TestCmdGraphEntityUsageErrors(t *testing.T) {
 	// Missing ID
 	withArgs(t, "engram", "graph", "entity")
 	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdGraphEntity(cfg) })
-	assertFatal(t, stderr, recovered, "usage: engram graph entity")
+	assertFatal(t, stderr, recovered, "usage: mneme graph entity")
 
 	// Invalid ID
 	withArgs(t, "engram", "graph", "entity", "not-a-number")
@@ -1192,7 +1192,7 @@ func TestCmdGraphSearchUsageErrors(t *testing.T) {
 	// Missing query
 	withArgs(t, "engram", "graph", "search")
 	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdGraphSearch(cfg) })
-	assertFatal(t, stderr, recovered, "usage: engram graph search")
+	assertFatal(t, stderr, recovered, "usage: mneme graph search")
 
 	// Only flags, no query
 	withArgs(t, "engram", "graph", "search", "--type", "person")
@@ -1261,7 +1261,7 @@ func TestCmdGraphTraverseUsageErrors(t *testing.T) {
 	// Missing ID
 	withArgs(t, "engram", "graph", "traverse")
 	_, stderr, recovered := captureOutputAndRecover(t, func() { cmdGraphTraverse(cfg) })
-	assertFatal(t, stderr, recovered, "usage: engram graph traverse")
+	assertFatal(t, stderr, recovered, "usage: mneme graph traverse")
 
 	// Invalid ID
 	withArgs(t, "engram", "graph", "traverse", "abc")
@@ -1313,7 +1313,7 @@ func TestCmdGraphHelp(t *testing.T) {
 	withArgs(t, "engram", "graph", "help")
 	stdout, stderr := captureOutput(t, func() { cmdGraph(testConfig(t)) })
 	combined := stdout + stderr
-	if !strings.Contains(combined, "engram graph entities") {
+	if !strings.Contains(combined, "mneme graph entities") {
 		t.Fatalf("expected graph usage in output, got stdout=%q stderr=%q", stdout, stderr)
 	}
 }

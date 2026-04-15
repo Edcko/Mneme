@@ -93,12 +93,12 @@ var claudeCodeMCPTools = []string{
 }
 
 // codexEngramBlock is the canonical Codex TOML MCP block.
-// Command is always the bare "engram" name in this constant because
+// Command is always the bare "mneme" name in this constant because
 // upsertCodexEngramBlock generates the actual content via codexEngramBlockStr()
 // which uses resolveEngramCommand() at runtime. This constant is kept for tests
 // that verify idempotency against the already-written string when os.Executable
-// returns "engram" (fallback path).
-const codexEngramBlock = "[mcp_servers.engram]\ncommand = \"engram\"\nargs = [\"mcp\", \"--tools=agent,graph\"]"
+// fails and PATH lookup also fails (fallback path).
+const codexEngramBlock = "[mcp_servers.engram]\ncommand = \"mneme\"\nargs = [\"mcp\", \"--tools=agent,graph\"]"
 
 // codexEngramBlockStr returns the Codex TOML block for the engram MCP server,
 // using the resolved absolute binary path from os.Executable().
@@ -264,30 +264,28 @@ func Install(agentName string) (*Result, error) {
 //
 // Original line in source:
 //
-//	const ENGRAM_BIN = process.env.ENGRAM_BIN ?? "engram"
+//	const ENGRAM_BIN = process.env.ENGRAM_BIN ?? "mneme"
 //
 // Patched line in installed copy:
 //
-//	const ENGRAM_BIN = process.env.ENGRAM_BIN ?? Bun.which("engram") ?? "/abs/path/engram"
+//	const ENGRAM_BIN = process.env.ENGRAM_BIN ?? Bun.which("mneme") ?? Bun.which("engram") ?? "/abs/path/mneme"
 //
 // Priority (left to right, first truthy wins):
 //  1. ENGRAM_BIN env var — explicit user override, always respected.
-//  2. Bun.which("engram") — runtime PATH lookup; works in interactive shells.
-//  3. Absolute baked-in path — works in headless/systemd where PATH is stripped.
-//
-// If absBin is already bare "engram" (os.Executable fallback) we don't add it
-// as the third fallback because it would be redundant with Bun.which("engram").
+//  2. Bun.which("mneme") — runtime PATH lookup for new binary name.
+//  3. Bun.which("engram") — backward compat for existing installs.
+//  4. Absolute baked-in path — works in headless/systemd where PATH is stripped.
 func patchEngramBINLine(src []byte, absBin string) []byte {
-	const marker = `const ENGRAM_BIN = process.env.ENGRAM_BIN ?? "engram"`
+	const marker = `const ENGRAM_BIN = process.env.ENGRAM_BIN ?? "mneme"`
 
 	var replacement string
-	if absBin == "engram" {
-		// os.Executable failed — add Bun.which but no baked-in absolute path
-		replacement = `const ENGRAM_BIN = process.env.ENGRAM_BIN ?? Bun.which("engram") ?? "engram"`
+	if absBin == "mneme" {
+		// os.Executable failed — add Bun.which for both names but no baked-in absolute path
+		replacement = `const ENGRAM_BIN = process.env.ENGRAM_BIN ?? Bun.which("mneme") ?? Bun.which("engram") ?? "mneme"`
 	} else {
 		// Normal case: bake in the absolute path as final fallback
 		replacement = fmt.Sprintf(
-			`const ENGRAM_BIN = process.env.ENGRAM_BIN ?? Bun.which("engram") ?? %q`,
+			`const ENGRAM_BIN = process.env.ENGRAM_BIN ?? Bun.which("mneme") ?? Bun.which("engram") ?? %q`,
 			absBin,
 		)
 	}
@@ -756,15 +754,23 @@ func injectGeminiMCP(configPath string) error {
 	return nil
 }
 
-// resolveEngramCommand returns the absolute path to the engram binary.
+// resolveEngramCommand returns the absolute path to the mneme binary.
 // It uses os.Executable() so that headless/systemd environments (where PATH
 // is not reliably inherited by child processes) still find the binary.
 // EvalSymlinks makes the path stable across package-manager upgrades.
-// Falls back to bare "engram" only if os.Executable() itself fails.
+// Falls back to PATH lookup (mneme first, then engram for backward compat),
+// and finally bare "mneme" only if everything fails.
 func resolveEngramCommand() string {
 	exe, err := osExecutable()
 	if err != nil {
-		return "engram" // fallback to PATH-based name
+		// os.Executable failed — try PATH lookup for new name, then old name.
+		if p, err := lookPathFn("mneme"); err == nil {
+			return p
+		}
+		if p, err := lookPathFn("engram"); err == nil {
+			return p
+		}
+		return "mneme" // final fallback to new binary name
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved

@@ -248,7 +248,7 @@ func TestFatal(t *testing.T) {
 	if !ok || int(code) != 1 {
 		t.Fatalf("expected exit code 1 panic, got %v", recovered)
 	}
-	if !strings.Contains(stderr, "engram: boom") {
+	if !strings.Contains(stderr, "mneme: boom") {
 		t.Fatalf("fatal stderr mismatch: %q", stderr)
 	}
 }
@@ -434,7 +434,7 @@ func TestCmdExportDefaultAndCmdImportErrors(t *testing.T) {
 
 	withArgs(t, "engram", "import")
 	_, stderr, recovered = captureOutputAndRecover(t, func() { cmdImport(cfg) })
-	if _, ok := recovered.(exitCode); !ok || !strings.Contains(stderr, "usage: engram import") {
+	if _, ok := recovered.(exitCode); !ok || !strings.Contains(stderr, "usage: mneme import") {
 		t.Fatalf("expected import usage exit, panic=%v stderr=%q", recovered, stderr)
 	}
 
@@ -542,10 +542,10 @@ func TestUsageAndValidationExits(t *testing.T) {
 		errSubstr  string
 		stderrOnly bool
 	}{
-		{name: "search usage", args: []string{"engram", "search"}, run: cmdSearch, errSubstr: "usage: engram search"},
+		{name: "search usage", args: []string{"engram", "search"}, run: cmdSearch, errSubstr: "usage: mneme search"},
 		{name: "search missing query", args: []string{"engram", "search", "--limit", "3"}, run: cmdSearch, errSubstr: "search query is required"},
-		{name: "save usage", args: []string{"engram", "save", "title"}, run: cmdSave, errSubstr: "usage: engram save"},
-		{name: "timeline usage", args: []string{"engram", "timeline"}, run: cmdTimeline, errSubstr: "usage: engram timeline"},
+		{name: "save usage", args: []string{"engram", "save", "title"}, run: cmdSave, errSubstr: "usage: mneme save"},
+		{name: "timeline usage", args: []string{"engram", "timeline"}, run: cmdTimeline, errSubstr: "usage: mneme timeline"},
 		{name: "timeline invalid id", args: []string{"engram", "timeline", "abc"}, run: cmdTimeline, errSubstr: "invalid observation id"},
 	}
 

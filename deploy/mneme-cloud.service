@@ -13,7 +13,7 @@ WorkingDirectory=/opt/mneme
 # Secrets come from an env file — never hardcoded in the unit.
 EnvironmentFile=/etc/mneme/cloud.env
 
-ExecStart=/usr/local/bin/engram cloud serve \
+ExecStart=/usr/local/bin/mneme cloud serve \
     --port ${MNEME_PORT} \
     --dsn ${MNEME_DSN} \
     --secret ${MNEME_SECRET}

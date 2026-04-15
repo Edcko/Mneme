@@ -134,13 +134,13 @@ func TestInstallGeminiCLIInjectsMCPConfig(t *testing.T) {
 
 	// Since resolveEngramCommand() uses os.Executable() on all platforms, the
 	// command will be the real test binary path in integration tests (not bare
-	// "engram"). Verify it is a non-empty absolute path.
+	// "mneme" or "engram"). Verify it is a non-empty absolute path.
 	cmd, ok := engram["command"].(string)
 	if !ok || cmd == "" {
 		t.Fatalf("expected non-empty command string, got %#v", engram["command"])
 	}
-	if cmd == "engram" {
-		t.Fatalf("expected absolute path from os.Executable(), got bare 'engram'")
+	if cmd == "mneme" || cmd == "engram" {
+		t.Fatalf("expected absolute path from os.Executable(), got bare %q", cmd)
 	}
 
 	args, ok := engram["args"].([]any)
@@ -687,7 +687,7 @@ func TestWriteClaudeCodeUserMCP(t *testing.T) {
 	t.Run("writes json with absolute binary path", func(t *testing.T) {
 		resetSetupSeams(t)
 		home := useTestHome(t)
-		osExecutable = func() (string, error) { return "/usr/local/bin/engram", nil }
+		osExecutable = func() (string, error) { return "/usr/local/bin/mneme", nil }
 
 		if err := writeClaudeCodeUserMCP(); err != nil {
 			t.Fatalf("writeClaudeCodeUserMCP failed: %v", err)
@@ -704,7 +704,7 @@ func TestWriteClaudeCodeUserMCP(t *testing.T) {
 			t.Fatalf("parse mcp config: %v", err)
 		}
 
-		if cfg["command"] != "/usr/local/bin/engram" {
+		if cfg["command"] != "/usr/local/bin/mneme" {
 			t.Fatalf("expected absolute path command, got %#v", cfg["command"])
 		}
 		args, ok := cfg["args"].([]any)
@@ -716,7 +716,7 @@ func TestWriteClaudeCodeUserMCP(t *testing.T) {
 	t.Run("overwrites existing (idempotent — always refreshes path)", func(t *testing.T) {
 		resetSetupSeams(t)
 		home := useTestHome(t)
-		osExecutable = func() (string, error) { return "/new/path/engram", nil }
+		osExecutable = func() (string, error) { return "/new/path/mneme", nil }
 
 		mcpDir := filepath.Join(home, ".claude", "mcp")
 		if err := os.MkdirAll(mcpDir, 0755); err != nil {
@@ -738,7 +738,7 @@ func TestWriteClaudeCodeUserMCP(t *testing.T) {
 		if err := json.Unmarshal(raw, &cfg); err != nil {
 			t.Fatalf("parse config: %v", err)
 		}
-		if cfg["command"] != "/new/path/engram" {
+		if cfg["command"] != "/new/path/mneme" {
 			t.Fatalf("expected updated command, got %#v", cfg["command"])
 		}
 	})
@@ -757,7 +757,7 @@ func TestWriteClaudeCodeUserMCP(t *testing.T) {
 	t.Run("marshal error returns error", func(t *testing.T) {
 		resetSetupSeams(t)
 		useTestHome(t)
-		osExecutable = func() (string, error) { return "/bin/engram", nil }
+		osExecutable = func() (string, error) { return "/bin/mneme", nil }
 		jsonMarshalIndentFn = func(any, string, string) ([]byte, error) {
 			return nil, errors.New("marshal boom")
 		}
@@ -771,7 +771,7 @@ func TestWriteClaudeCodeUserMCP(t *testing.T) {
 	t.Run("write error returns error", func(t *testing.T) {
 		resetSetupSeams(t)
 		home := useTestHome(t)
-		osExecutable = func() (string, error) { return "/bin/engram", nil }
+		osExecutable = func() (string, error) { return "/bin/mneme", nil }
 		// Make ~/.claude/mcp/engram.json a directory so write fails
 		mcpDir := filepath.Join(home, ".claude", "mcp")
 		if err := os.MkdirAll(mcpDir, 0755); err != nil {
@@ -795,7 +795,7 @@ func TestWriteClaudeCodeUserMCP(t *testing.T) {
 			t.Fatalf("write blocking file: %v", err)
 		}
 		userHomeDir = func() (string, error) { return blocked, nil }
-		osExecutable = func() (string, error) { return "/bin/engram", nil }
+		osExecutable = func() (string, error) { return "/bin/mneme", nil }
 
 		err := writeClaudeCodeUserMCP()
 		if err == nil || !strings.Contains(err.Error(), "create mcp dir") {
@@ -808,60 +808,93 @@ func TestResolveEngramCommand(t *testing.T) {
 	t.Run("unix returns absolute path from os.Executable", func(t *testing.T) {
 		resetSetupSeams(t)
 		runtimeGOOS = "linux"
-		osExecutable = func() (string, error) { return "/usr/local/bin/engram", nil }
+		osExecutable = func() (string, error) { return "/usr/local/bin/mneme", nil }
 
 		got := resolveEngramCommand()
 		// EvalSymlinks on a non-existent path returns an error, so the result
 		// is the raw os.Executable() value.
-		if got == "engram" {
-			t.Fatalf("expected absolute path on unix, got bare 'engram'")
+		if got == "mneme" || got == "engram" {
+			t.Fatalf("expected absolute path on unix, got bare name %q", got)
 		}
-		if !strings.Contains(got, "engram") {
-			t.Fatalf("expected engram in path, got %q", got)
+		if !strings.Contains(got, "mneme") {
+			t.Fatalf("expected mneme in path, got %q", got)
 		}
 	})
 
 	t.Run("darwin returns absolute path from os.Executable", func(t *testing.T) {
 		resetSetupSeams(t)
 		runtimeGOOS = "darwin"
-		osExecutable = func() (string, error) { return "/opt/homebrew/bin/engram", nil }
+		osExecutable = func() (string, error) { return "/opt/homebrew/bin/mneme", nil }
 
 		got := resolveEngramCommand()
-		if got == "engram" {
-			t.Fatalf("expected absolute path on darwin, got bare 'engram'")
+		if got == "mneme" || got == "engram" {
+			t.Fatalf("expected absolute path on darwin, got bare name %q", got)
 		}
-		if !strings.Contains(got, "engram") {
-			t.Fatalf("expected engram in path, got %q", got)
+		if !strings.Contains(got, "mneme") {
+			t.Fatalf("expected mneme in path, got %q", got)
 		}
 	})
 
 	t.Run("windows returns absolute path", func(t *testing.T) {
 		resetSetupSeams(t)
 		runtimeGOOS = "windows"
-		osExecutable = func() (string, error) { return `C:\Users\user\bin\engram.exe`, nil }
+		osExecutable = func() (string, error) { return `C:\Users\user\bin\mneme.exe`, nil }
 
 		got := resolveEngramCommand()
 		// EvalSymlinks may change the path on real OS but in tests it should
-		// either equal the input or the resolved form — either way not bare "engram"
-		if got == "engram" {
-			t.Fatalf("expected absolute path on windows, got bare 'engram'")
+		// either equal the input or the resolved form — either way not bare
+		if got == "mneme" || got == "engram" {
+			t.Fatalf("expected absolute path on windows, got bare name %q", got)
 		}
-		if !strings.Contains(got, "engram") {
-			t.Fatalf("expected engram in path, got %q", got)
+		if !strings.Contains(got, "mneme") {
+			t.Fatalf("expected mneme in path, got %q", got)
 		}
 	})
 
-	t.Run("executable error falls back to bare name on all platforms", func(t *testing.T) {
+	t.Run("executable error falls back to mneme via PATH when PATH also fails", func(t *testing.T) {
 		for _, goos := range []string{"linux", "darwin", "windows"} {
 			t.Run(goos, func(t *testing.T) {
 				resetSetupSeams(t)
 				runtimeGOOS = goos
 				osExecutable = func() (string, error) { return "", errors.New("no executable") }
+				lookPathFn = func(string) (string, error) { return "", errors.New("not in PATH") }
 
-				if got := resolveEngramCommand(); got != "engram" {
-					t.Fatalf("expected fallback to bare 'engram', got %q", got)
+				if got := resolveEngramCommand(); got != "mneme" {
+					t.Fatalf("expected fallback to bare 'mneme', got %q", got)
 				}
 			})
+		}
+	})
+
+	t.Run("executable error finds engram in PATH as backward compat", func(t *testing.T) {
+		resetSetupSeams(t)
+		runtimeGOOS = "linux"
+		osExecutable = func() (string, error) { return "", errors.New("no executable") }
+		lookPathFn = func(name string) (string, error) {
+			if name == "mneme" {
+				return "", errors.New("not found")
+			}
+			return "/usr/local/bin/engram", nil
+		}
+
+		if got := resolveEngramCommand(); got != "/usr/local/bin/engram" {
+			t.Fatalf("expected engram path from PATH lookup, got %q", got)
+		}
+	})
+
+	t.Run("executable error finds mneme in PATH", func(t *testing.T) {
+		resetSetupSeams(t)
+		runtimeGOOS = "linux"
+		osExecutable = func() (string, error) { return "", errors.New("no executable") }
+		lookPathFn = func(name string) (string, error) {
+			if name == "mneme" {
+				return "/usr/local/bin/mneme", nil
+			}
+			return "", errors.New("not found")
+		}
+
+		if got := resolveEngramCommand(); got != "/usr/local/bin/mneme" {
+			t.Fatalf("expected mneme path from PATH lookup, got %q", got)
 		}
 	})
 }
@@ -888,9 +921,9 @@ func TestGeminiInjectUsesAbsolutePath(t *testing.T) {
 		goos string
 		exe  string
 	}{
-		{"windows", `C:\Users\user\bin\engram.exe`},
-		{"linux", "/usr/local/bin/engram"},
-		{"darwin", "/opt/homebrew/bin/engram"},
+		{"windows", `C:\Users\user\bin\mneme.exe`},
+		{"linux", "/usr/local/bin/mneme"},
+		{"darwin", "/opt/homebrew/bin/mneme"},
 	} {
 		t.Run(tc.goos+" uses absolute path", func(t *testing.T) {
 			resetSetupSeams(t)
@@ -913,19 +946,20 @@ func TestGeminiInjectUsesAbsolutePath(t *testing.T) {
 			mcpServers := cfg["mcpServers"].(map[string]any)
 			engram := mcpServers["engram"].(map[string]any)
 			cmd := engram["command"].(string)
-			if cmd == "engram" {
-				t.Fatalf("expected absolute path on %s, got bare 'engram'", tc.goos)
+			if cmd == "mneme" || cmd == "engram" {
+				t.Fatalf("expected absolute path on %s, got bare name %q", tc.goos, cmd)
 			}
-			if !strings.Contains(cmd, "engram") {
-				t.Fatalf("expected engram in command path, got %q", cmd)
+			if !strings.Contains(cmd, "mneme") {
+				t.Fatalf("expected mneme in command path, got %q", cmd)
 			}
 		})
 	}
 
-	t.Run("fallback to bare engram when os.Executable fails", func(t *testing.T) {
+	t.Run("fallback to bare mneme when os.Executable fails and PATH empty", func(t *testing.T) {
 		resetSetupSeams(t)
 		runtimeGOOS = "linux"
 		osExecutable = func() (string, error) { return "", errors.New("no executable") }
+		lookPathFn = func(string) (string, error) { return "", errors.New("not in PATH") }
 
 		configPath := filepath.Join(t.TempDir(), "settings.json")
 		if err := injectGeminiMCP(configPath); err != nil {
@@ -942,8 +976,8 @@ func TestGeminiInjectUsesAbsolutePath(t *testing.T) {
 		}
 		mcpServers := cfg["mcpServers"].(map[string]any)
 		engram := mcpServers["engram"].(map[string]any)
-		if got := engram["command"]; got != "engram" {
-			t.Fatalf("expected bare 'engram' fallback, got %#v", got)
+		if got := engram["command"]; got != "mneme" {
+			t.Fatalf("expected bare 'mneme' fallback, got %#v", got)
 		}
 	})
 }
@@ -956,9 +990,9 @@ func TestCodexBlockUsesAbsolutePath(t *testing.T) {
 		exe  string
 		want string
 	}{
-		{"windows", `C:\Users\user\bin\engram.exe`, `C:\Users\user\bin\engram.exe`},
-		{"linux", "/usr/local/bin/engram", "/usr/local/bin/engram"},
-		{"darwin", "/opt/homebrew/bin/engram", "/opt/homebrew/bin/engram"},
+		{"windows", `C:\Users\user\bin\mneme.exe`, `C:\Users\user\bin\mneme.exe`},
+		{"linux", "/usr/local/bin/mneme", "/usr/local/bin/mneme"},
+		{"darwin", "/opt/homebrew/bin/mneme", "/opt/homebrew/bin/mneme"},
 	} {
 		t.Run(tc.goos+" uses absolute path in codex block", func(t *testing.T) {
 			resetSetupSeams(t)
@@ -973,19 +1007,20 @@ func TestCodexBlockUsesAbsolutePath(t *testing.T) {
 				t.Fatalf("expected args in codex block, got:\n%s", block)
 			}
 			if block == codexEngramBlock {
-				t.Fatalf("expected absolute path, got bare-engram fallback block:\n%s", block)
+				t.Fatalf("expected absolute path, got bare-mneme fallback block:\n%s", block)
 			}
 		})
 	}
 
-	t.Run("falls back to bare engram when os.Executable fails", func(t *testing.T) {
+	t.Run("falls back to bare mneme when os.Executable fails and PATH empty", func(t *testing.T) {
 		resetSetupSeams(t)
 		runtimeGOOS = "linux"
 		osExecutable = func() (string, error) { return "", errors.New("no executable") }
+		lookPathFn = func(string) (string, error) { return "", errors.New("not in PATH") }
 
 		block := codexEngramBlockStr()
-		if !strings.Contains(block, `command = "engram"`) {
-			t.Fatalf("expected bare engram fallback in codex block, got:\n%s", block)
+		if !strings.Contains(block, `command = "mneme"`) {
+			t.Fatalf("expected bare mneme fallback in codex block, got:\n%s", block)
 		}
 	})
 }
@@ -1138,7 +1173,7 @@ func TestGeminiAndCodexHelpersErrorPaths(t *testing.T) {
 	t.Run("injectGeminiMCP creates file from missing config", func(t *testing.T) {
 		resetSetupSeams(t)
 		// Force a known absolute path so the test is deterministic.
-		osExecutable = func() (string, error) { return "/usr/local/bin/engram", nil }
+		osExecutable = func() (string, error) { return "/usr/local/bin/mneme", nil }
 		configPath := filepath.Join(t.TempDir(), "settings.json")
 
 		if err := injectGeminiMCP(configPath); err != nil {
@@ -1165,8 +1200,8 @@ func TestGeminiAndCodexHelpersErrorPaths(t *testing.T) {
 		}
 		// resolveEngramCommand() now returns absolute path on all platforms.
 		cmd, ok := engram["command"].(string)
-		if !ok || !strings.Contains(cmd, "engram") {
-			t.Fatalf("expected command containing 'engram', got %#v", engram["command"])
+		if !ok || !strings.Contains(cmd, "mneme") {
+			t.Fatalf("expected command containing 'mneme', got %#v", engram["command"])
 		}
 	})
 
@@ -1414,6 +1449,7 @@ func TestGeminiAndCodexHelpersErrorPaths(t *testing.T) {
 		resetSetupSeams(t)
 		// Force fallback path so output matches the constant.
 		osExecutable = func() (string, error) { return "", errors.New("no executable") }
+		lookPathFn = func(string) (string, error) { return "", errors.New("not in PATH") }
 
 		output := upsertCodexEngramBlock("\n\n")
 		if output != codexEngramBlock+"\n" {
@@ -2129,13 +2165,14 @@ func TestInjectOpenCodeMCPUsesResolvedCommand(t *testing.T) {
 		})
 	}
 
-	t.Run("executable error falls back to bare engram on all platforms", func(t *testing.T) {
+	t.Run("executable error falls back to bare mneme on all platforms", func(t *testing.T) {
 		for _, goos := range []string{"linux", "darwin", "windows"} {
 			t.Run(goos, func(t *testing.T) {
 				resetSetupSeams(t)
 				home := useTestHome(t)
 				runtimeGOOS = goos
 				osExecutable = func() (string, error) { return "", errors.New("no executable") }
+				lookPathFn = func(string) (string, error) { return "", errors.New("not in PATH") }
 				t.Setenv("XDG_CONFIG_HOME", "")
 
 				configDir := filepath.Join(home, ".config", "opencode")
@@ -2161,8 +2198,8 @@ func TestInjectOpenCodeMCPUsesResolvedCommand(t *testing.T) {
 				if len(cmd) == 0 {
 					t.Fatalf("expected non-empty command array")
 				}
-				if got := cmd[0].(string); got != "engram" {
-					t.Fatalf("expected fallback to bare 'engram' when os.Executable fails, got %q", got)
+				if got := cmd[0].(string); got != "mneme" {
+					t.Fatalf("expected fallback to bare 'mneme' when os.Executable fails, got %q", got)
 				}
 			})
 		}
@@ -2232,59 +2269,69 @@ func TestInstallOpenCodeWarningUsesResolvedCommand(t *testing.T) {
 // the ENGRAM_BIN constant in the plugin source to include a Bun.which() runtime
 // fallback and a baked-in absolute path as the final headless fallback.
 func TestPatchEngramBINLine(t *testing.T) {
-	const original = `const ENGRAM_BIN = process.env.ENGRAM_BIN ?? "engram"`
+	const original = `const ENGRAM_BIN = process.env.ENGRAM_BIN ?? "mneme"`
 
 	t.Run("bakes in absolute path with Bun.which intermediate fallback", func(t *testing.T) {
-		result := string(patchEngramBINLine([]byte(original), "/usr/local/bin/engram"))
+		result := string(patchEngramBINLine([]byte(original), "/usr/local/bin/mneme"))
 
-		if strings.Contains(result, `?? "engram"`) {
-			t.Fatalf("original bare-engram fallback should be replaced, got:\n%s", result)
+		if strings.Contains(result, `?? "mneme"`) {
+			t.Fatalf("original bare-mneme fallback should be replaced, got:\n%s", result)
 		}
 		if !strings.Contains(result, `process.env.ENGRAM_BIN`) {
 			t.Fatalf("must keep process.env.ENGRAM_BIN as first option, got:\n%s", result)
 		}
-		if !strings.Contains(result, `Bun.which("engram")`) {
-			t.Fatalf("must include Bun.which fallback, got:\n%s", result)
+		if !strings.Contains(result, `Bun.which("mneme")`) {
+			t.Fatalf("must include Bun.which mneme fallback, got:\n%s", result)
 		}
-		if !strings.Contains(result, `"/usr/local/bin/engram"`) {
+		if !strings.Contains(result, `Bun.which("engram")`) {
+			t.Fatalf("must include Bun.which engram backward-compat fallback, got:\n%s", result)
+		}
+		if !strings.Contains(result, `"/usr/local/bin/mneme"`) {
 			t.Fatalf("must include baked-in absolute path, got:\n%s", result)
 		}
-		// Verify precedence order: env var ?? Bun.which ?? absolute path
+		// Verify precedence order: env var ?? Bun.which("mneme") ?? Bun.which("engram") ?? absolute path
 		envIdx := strings.Index(result, `process.env.ENGRAM_BIN`)
-		whichIdx := strings.Index(result, `Bun.which`)
-		absIdx := strings.Index(result, `"/usr/local/bin/engram"`)
-		if !(envIdx < whichIdx && whichIdx < absIdx) {
-			t.Fatalf("wrong precedence order (env < which < abs), got:\n%s", result)
+		whichMnemeIdx := strings.Index(result, `Bun.which("mneme")`)
+		whichEngramIdx := strings.Index(result, `Bun.which("engram")`)
+		absIdx := strings.Index(result, `"/usr/local/bin/mneme"`)
+		if !(envIdx < whichMnemeIdx && whichMnemeIdx < whichEngramIdx && whichEngramIdx < absIdx) {
+			t.Fatalf("wrong precedence order (env < which mneme < which engram < abs), got:\n%s", result)
 		}
 	})
 
 	t.Run("Windows path with backslashes is JSON-quoted correctly", func(t *testing.T) {
-		result := string(patchEngramBINLine([]byte(original), `C:\Users\user\bin\engram.exe`))
+		result := string(patchEngramBINLine([]byte(original), `C:\Users\user\bin\mneme.exe`))
 
 		// The path must appear as a properly JSON-escaped string
-		if !strings.Contains(result, `Bun.which("engram")`) {
-			t.Fatalf("must include Bun.which fallback, got:\n%s", result)
+		if !strings.Contains(result, `Bun.which("mneme")`) {
+			t.Fatalf("must include Bun.which mneme fallback, got:\n%s", result)
 		}
-		if !strings.Contains(result, `engram.exe`) {
+		if !strings.Contains(result, `Bun.which("engram")`) {
+			t.Fatalf("must include Bun.which engram backward-compat fallback, got:\n%s", result)
+		}
+		if !strings.Contains(result, `mneme.exe`) {
 			t.Fatalf("must include Windows binary name, got:\n%s", result)
 		}
 	})
 
-	t.Run("bare engram fallback when os.Executable failed", func(t *testing.T) {
-		result := string(patchEngramBINLine([]byte(original), "engram"))
+	t.Run("bare mneme fallback when os.Executable failed", func(t *testing.T) {
+		result := string(patchEngramBINLine([]byte(original), "mneme"))
 
-		// When absBin=="engram", we still add Bun.which but don't repeat "engram" as absolute
+		// When absBin=="mneme", we still add Bun.which for both names but no baked-in absolute path
 		if !strings.Contains(result, `process.env.ENGRAM_BIN`) {
 			t.Fatalf("must keep process.env.ENGRAM_BIN, got:\n%s", result)
 		}
+		if !strings.Contains(result, `Bun.which("mneme")`) {
+			t.Fatalf("must include Bun.which mneme fallback, got:\n%s", result)
+		}
 		if !strings.Contains(result, `Bun.which("engram")`) {
-			t.Fatalf("must include Bun.which fallback, got:\n%s", result)
+			t.Fatalf("must include Bun.which engram backward-compat fallback, got:\n%s", result)
 		}
 	})
 
 	t.Run("does not modify source if marker is absent", func(t *testing.T) {
-		src := []byte(`// already patched\nconst ENGRAM_BIN = process.env.ENGRAM_BIN ?? Bun.which("engram") ?? "/bin/engram"`)
-		result := patchEngramBINLine(src, "/new/bin/engram")
+		src := []byte(`// already patched\nconst ENGRAM_BIN = process.env.ENGRAM_BIN ?? Bun.which("mneme") ?? Bun.which("engram") ?? "/bin/mneme"`)
+		result := patchEngramBINLine(src, "/new/bin/mneme")
 		// Marker not found — returns original unchanged
 		if string(result) != string(src) {
 			t.Fatalf("expected no-op when marker absent, got:\n%s", string(result))
@@ -2293,9 +2340,9 @@ func TestPatchEngramBINLine(t *testing.T) {
 
 	t.Run("only replaces first occurrence", func(t *testing.T) {
 		doubled := original + "\n" + original
-		result := string(patchEngramBINLine([]byte(doubled), "/bin/engram"))
+		result := string(patchEngramBINLine([]byte(doubled), "/bin/mneme"))
 		// One line should be replaced, the other should remain as-is
-		if strings.Count(result, `?? "engram"`) != 1 {
+		if strings.Count(result, `?? "mneme"`) != 1 {
 			t.Fatalf("expected exactly one original line to remain, got:\n%s", result)
 		}
 	})
@@ -2309,7 +2356,7 @@ func TestInstallOpenCodeBakesENGRAMBIN(t *testing.T) {
 		resetSetupSeams(t)
 		home := useTestHome(t)
 		runtimeGOOS = "linux"
-		osExecutable = func() (string, error) { return "/usr/local/bin/engram", nil }
+		osExecutable = func() (string, error) { return "/usr/local/bin/mneme", nil }
 		t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 
 		result, err := installOpenCode()
@@ -2331,12 +2378,16 @@ func TestInstallOpenCodeBakesENGRAMBIN(t *testing.T) {
 		if !strings.Contains(content, `process.env.ENGRAM_BIN`) {
 			t.Fatalf("installed plugin must keep process.env.ENGRAM_BIN override")
 		}
-		// Must have Bun.which intermediate fallback
+		// Must have Bun.which mneme intermediate fallback
+		if !strings.Contains(content, `Bun.which("mneme")`) {
+			t.Fatalf("installed plugin must include Bun.which mneme fallback")
+		}
+		// Must have Bun.which engram backward-compat fallback
 		if !strings.Contains(content, `Bun.which("engram")`) {
-			t.Fatalf("installed plugin must include Bun.which fallback")
+			t.Fatalf("installed plugin must include Bun.which engram backward-compat fallback")
 		}
 		// Must have the baked-in absolute path
-		if !strings.Contains(content, `"/usr/local/bin/engram"`) {
+		if !strings.Contains(content, `"/usr/local/bin/mneme"`) {
 			t.Fatalf("installed plugin must contain baked-in absolute path, got:\n%s", content)
 		}
 		// Source plugin file must remain unchanged (no patching of the template)
@@ -2344,7 +2395,7 @@ func TestInstallOpenCodeBakesENGRAMBIN(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read embedded plugin: %v", err)
 		}
-		if !strings.Contains(string(srcRaw), `?? "engram"`) {
+		if !strings.Contains(string(srcRaw), `?? "mneme"`) {
 			t.Fatalf("source embedded plugin must remain unpatched")
 		}
 	})
@@ -2356,7 +2407,7 @@ func TestInstallOpenCodeBakesENGRAMBIN(t *testing.T) {
 		resetSetupSeams(t)
 		home := useTestHome(t)
 		runtimeGOOS = "linux"
-		osExecutable = func() (string, error) { return "/usr/local/bin/engram", nil }
+		osExecutable = func() (string, error) { return "/usr/local/bin/mneme", nil }
 		t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 
 		if _, err := installOpenCode(); err != nil {
@@ -2371,24 +2422,26 @@ func TestInstallOpenCodeBakesENGRAMBIN(t *testing.T) {
 		content := string(raw)
 
 		// The line must have the form:
-		// const ENGRAM_BIN = process.env.ENGRAM_BIN ?? Bun.which("engram") ?? "/abs/path"
+		// const ENGRAM_BIN = process.env.ENGRAM_BIN ?? Bun.which("mneme") ?? Bun.which("engram") ?? "/abs/path"
 		// where process.env.ENGRAM_BIN is leftmost (wins if set).
 		envIdx := strings.Index(content, `process.env.ENGRAM_BIN`)
-		whichIdx := strings.Index(content, `Bun.which("engram")`)
-		absIdx := strings.Index(content, `"/usr/local/bin/engram"`)
-		if envIdx == -1 || whichIdx == -1 || absIdx == -1 {
+		whichMnemeIdx := strings.Index(content, `Bun.which("mneme")`)
+		whichEngramIdx := strings.Index(content, `Bun.which("engram")`)
+		absIdx := strings.Index(content, `"/usr/local/bin/mneme"`)
+		if envIdx == -1 || whichMnemeIdx == -1 || whichEngramIdx == -1 || absIdx == -1 {
 			t.Fatalf("missing expected tokens in installed plugin:\n%s", content)
 		}
-		if !(envIdx < whichIdx && whichIdx < absIdx) {
+		if !(envIdx < whichMnemeIdx && whichMnemeIdx < whichEngramIdx && whichEngramIdx < absIdx) {
 			t.Fatalf("wrong operator precedence in ENGRAM_BIN line:\n%s", content)
 		}
 	})
 
-	t.Run("os.Executable fallback: Bun.which added but no double-engram", func(t *testing.T) {
+	t.Run("os.Executable fallback: Bun.which added but no double-mneme", func(t *testing.T) {
 		resetSetupSeams(t)
 		home := useTestHome(t)
 		runtimeGOOS = "linux"
 		osExecutable = func() (string, error) { return "", errors.New("no executable") }
+		lookPathFn = func(string) (string, error) { return "", errors.New("not in PATH") }
 		t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 
 		if _, err := installOpenCode(); err != nil {
@@ -2402,8 +2455,11 @@ func TestInstallOpenCodeBakesENGRAMBIN(t *testing.T) {
 		}
 		content := string(raw)
 
+		if !strings.Contains(content, `Bun.which("mneme")`) {
+			t.Fatalf("must still add Bun.which mneme even when os.Executable fails")
+		}
 		if !strings.Contains(content, `Bun.which("engram")`) {
-			t.Fatalf("must still add Bun.which even when os.Executable fails")
+			t.Fatalf("must still add Bun.which engram backward-compat even when os.Executable fails")
 		}
 	})
 }

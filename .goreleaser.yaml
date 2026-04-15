@@ -1,6 +1,6 @@
 version: 2
 
-project_name: engram
+project_name: mneme
 
 before:
   hooks:
@@ -8,7 +8,7 @@ before:
 
 builds:
   - main: ./cmd/engram
-    binary: engram
+    binary: mneme
     env:
       - CGO_ENABLED=0
     goos:
@@ -47,8 +47,8 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
-    name: engram
-    homepage: "https://github.com/Gentleman-Programming/engram"
+    name: mneme
+    homepage: "https://github.com/Edcko/Mneme"
     description: "Persistent memory for AI coding agents. Agent-agnostic, single binary, zero dependencies."
     license: "MIT"
-    commit_msg_template: "chore: update engram formula to {{ .Tag }}"
+    commit_msg_template: "chore: update mneme formula to {{ .Tag }}"

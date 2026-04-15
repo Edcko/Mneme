@@ -15,18 +15,18 @@
 ## Homebrew (macOS / Linux)
 
 ```bash
-brew install gentleman-programming/tap/engram
+brew install gentleman-programming/tap/mneme
 ```
 
 Upgrade to latest:
 
 ```bash
-brew update && brew upgrade engram
+brew update && brew upgrade mneme
 ```
 
-> **Migrating from Cask?** If you installed engram before v1.0.1, it was distributed as a Cask. Uninstall first, then reinstall:
+> **Migrating from the old `engram` formula?** If you installed before the rename, uninstall first, then reinstall:
 > ```bash
-> brew uninstall --cask engram 2>/dev/null; brew install gentleman-programming/tap/engram
+> brew uninstall engram 2>/dev/null; brew install gentleman-programming/tap/mneme
 > ```
 
 ---
@@ -40,6 +40,8 @@ If you have Go installed, this is the cleanest and most trustworthy path — the
 ```powershell
 go install github.com/Edcko/Mneme/cmd/engram@latest
 # Binary goes to %GOPATH%\bin\engram.exe (typically %USERPROFILE%\go\bin\)
+# Rename to mneme.exe for the new binary name:
+Rename-Item "$env:GOPATH\bin\engram.exe" "$env:GOPATH\bin\mneme.exe"
 ```
 
 Ensure `%GOPATH%\bin` (or `%USERPROFILE%\go\bin`) is on your `PATH`.
@@ -49,23 +51,27 @@ Ensure `%GOPATH%\bin` (or `%USERPROFILE%\go\bin`) is on your `PATH`.
 ```powershell
 git clone https://github.com/Edcko/Mneme.git
 cd Mneme
-go install ./cmd/engram
-# Binary goes to %GOPATH%\bin\engram.exe (typically %USERPROFILE%\go\bin\)
+go build -o mneme.exe ./cmd/engram
+# Binary is mneme.exe in the current directory
 
-# Optional: build with version stamp (otherwise `engram version` shows "dev")
+# Optional: install to GOPATH/bin
+go install ./cmd/engram
+Rename-Item "$env:GOPATH\bin\engram.exe" "$env:GOPATH\bin\mneme.exe"
+
+# Optional: build with version stamp (otherwise `mneme version` shows "dev")
 $v = git describe --tags --always
-go build -ldflags="-X main.version=local-$v" -o engram.exe ./cmd/engram
+go build -ldflags="-X main.version=local-$v" -o mneme.exe ./cmd/engram
 ```
 
 **Option C: Download the prebuilt binary**
 
 1. Go to [GitHub Releases](https://github.com/Edcko/Mneme/releases)
-2. Download `engram_<version>_windows_amd64.zip` (or `arm64` for ARM devices)
-3. Extract `engram.exe` to a folder in your `PATH` (e.g. `C:\Users\<you>\bin\`)
+2. Download `mneme_<version>_windows_amd64.zip` (or `arm64` for ARM devices)
+3. Extract `mneme.exe` to a folder in your `PATH` (e.g. `C:\Users\<you>\bin\`)
 
 ```powershell
 # Example: extract and add to PATH (PowerShell)
-Expand-Archive engram_*_windows_amd64.zip -DestinationPath "$env:USERPROFILE\bin"
+Expand-Archive mneme_*_windows_amd64.zip -DestinationPath "$env:USERPROFILE\bin"
 # Add to PATH permanently (run once):
 [Environment]::SetEnvironmentVariable("Path", "$env:USERPROFILE\bin;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")
 ```
@@ -103,10 +109,13 @@ Expand-Archive engram_*_windows_amd64.zip -DestinationPath "$env:USERPROFILE\bin
 ```bash
 git clone https://github.com/Edcko/Mneme.git
 cd Mneme
-go install ./cmd/engram
+go build -o mneme ./cmd/engram
 
-# Optional: build with version stamp (otherwise `engram version` shows "dev")
-go build -ldflags="-X main.version=local-$(git describe --tags --always)" -o engram ./cmd/engram
+# Optional: install to GOPATH/bin (binary will be named 'engram' — rename after)
+go install ./cmd/engram && mv ~/go/bin/engram ~/go/bin/mneme
+
+# Optional: build with version stamp (otherwise `mneme version` shows "dev")
+go build -ldflags="-X main.version=local-$(git describe --tags --always)" -o mneme ./cmd/engram
 ```
 
 ---
@@ -117,12 +126,12 @@ Grab the latest release for your platform from [GitHub Releases](https://github.
 
 | Platform | File |
 |----------|------|
-| macOS (Apple Silicon) | `engram_<version>_darwin_arm64.tar.gz` |
-| macOS (Intel) | `engram_<version>_darwin_amd64.tar.gz` |
-| Linux (x86_64) | `engram_<version>_linux_amd64.tar.gz` |
-| Linux (ARM64) | `engram_<version>_linux_arm64.tar.gz` |
-| Windows (x86_64) | `engram_<version>_windows_amd64.zip` |
-| Windows (ARM64) | `engram_<version>_windows_arm64.zip` |
+| macOS (Apple Silicon) | `mneme_<version>_darwin_arm64.tar.gz` |
+| macOS (Intel) | `mneme_<version>_darwin_amd64.tar.gz` |
+| Linux (x86_64) | `mneme_<version>_linux_amd64.tar.gz` |
+| Linux (ARM64) | `mneme_<version>_linux_arm64.tar.gz` |
+| Windows (x86_64) | `mneme_<version>_windows_amd64.zip` |
+| Windows (ARM64) | `mneme_<version>_windows_arm64.zip` |
 
 ---
 
@@ -146,7 +155,7 @@ The binary includes SQLite (via [modernc.org/sqlite](https://pkg.go.dev/modernc.
 
 ## Windows Config Paths
 
-When using `engram setup`, config files are written to platform-appropriate locations:
+When using `mneme setup`, config files are written to platform-appropriate locations:
 
 | Agent | macOS / Linux | Windows |
 |-------|---------------|---------|

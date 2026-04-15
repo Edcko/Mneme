@@ -12,7 +12,7 @@ Mneme works with **any MCP-compatible agent**. Pick your agent below.
 | OpenCode | `mneme setup opencode` | [Details](#opencode) |
 | Gemini CLI | `mneme setup gemini-cli` | [Details](#gemini-cli) |
 | Codex | `mneme setup codex` | [Details](#codex) |
-| VS Code | `code --add-mcp '{"name":"engram","command":"engram","args":["mcp"]}'` | [Details](#vs-code-copilot--claude-code-extension) |
+| VS Code | `code --add-mcp '{"name":"engram","command":"mneme","args":["mcp"]}'` | [Details](#vs-code-copilot--claude-code-extension) |
 | Antigravity | Manual JSON config | [Details](#antigravity) |
 | Cursor | Manual JSON config | [Details](#cursor) |
 | Windsurf | Manual JSON config | [Details](#windsurf) |
@@ -22,13 +22,7 @@ Mneme works with **any MCP-compatible agent**. Pick your agent below.
 
 ## OpenCode
 
-> **Prerequisite**: Install the `engram` binary first (via [Homebrew](INSTALLATION.md#homebrew-macos--linux), [Windows binary](INSTALLATION.md#windows), [binary download](INSTALLATION.md#download-binary-all-platforms), or [source](INSTALLATION.md#install-from-source-macos--linux)). The plugin needs it for the MCP server and session tracking.
-
----
-
-## OpenCode
-
-> **Prerequisite**: Install the `engram` binary first (via [Homebrew](INSTALLATION.md#homebrew-macos--linux), [Windows binary](INSTALLATION.md#windows), [binary download](INSTALLATION.md#download-binary-all-platforms), or [source](INSTALLATION.md#install-from-source-macos--linux)). The plugin needs it for the MCP server and session tracking.
+> **Prerequisite**: Install the `mneme` binary first (via [Homebrew](INSTALLATION.md#homebrew-macos--linux), [Windows binary](INSTALLATION.md#windows), [binary download](INSTALLATION.md#download-binary-all-platforms), or [source](INSTALLATION.md#install-from-source-macos--linux)). The plugin needs it for the MCP server and session tracking.
 
 **Recommended: Full setup with one command** — installs the plugin AND registers the MCP server in `opencode.json` automatically:
 
@@ -46,7 +40,7 @@ The plugin also needs the HTTP server running for session tracking:
 mneme serve &
 ```
 
-> **Windows**: On Windows, `mneme setup opencode` writes to `%APPDATA%\opencode\plugins\` and `%APPDATA%\opencode\opencode.json` automatically. To run the server in the background: `Start-Process engram -ArgumentList "serve" -WindowStyle Hidden` (PowerShell) or just run `engram serve` in a separate terminal.
+> **Windows**: On Windows, `mneme setup opencode` writes to `%APPDATA%\opencode\plugins\` and `%APPDATA%\opencode\opencode.json` automatically. To run the server in the background: `Start-Process mneme -ArgumentList "serve" -WindowStyle Hidden` (PowerShell) or just run `mneme serve` in a separate terminal.
 
 **Alternative: Manual MCP-only setup** (no plugin, just the 13 memory tools):
 
@@ -57,7 +51,7 @@ Add to your `opencode.json` (global: `~/.config/opencode/opencode.json` or proje
   "mcp": {
     "engram": {
       "type": "local",
-      "command": ["engram", "mcp"],
+      "command": ["mneme", "mcp"],
       "enabled": true
     }
   }
@@ -70,7 +64,7 @@ See [Plugins → OpenCode Plugin](PLUGINS.md#opencode-plugin) for details on wha
 
 ## Claude Code
 
-> **Prerequisite**: Install the `engram` binary first (via [Homebrew](INSTALLATION.md#homebrew-macos--linux), [Windows binary](INSTALLATION.md#windows), [binary download](INSTALLATION.md#download-binary-all-platforms), or [source](INSTALLATION.md#install-from-source-macos--linux)). The plugin needs it for the MCP server and session tracking scripts.
+> **Prerequisite**: Install the `mneme` binary first (via [Homebrew](INSTALLATION.md#homebrew-macos--linux), [Windows binary](INSTALLATION.md#windows), [binary download](INSTALLATION.md#download-binary-all-platforms), or [source](INSTALLATION.md#install-from-source-macos--linux)). The plugin needs it for the MCP server and session tracking scripts.
 
 **Option A: Plugin via marketplace (recommended)** — full session management, auto-import, compaction recovery, and Memory Protocol skill:
 
@@ -97,7 +91,7 @@ Add to your `.claude/settings.json` (project) or `~/.claude/settings.json` (glob
 {
   "mcpServers": {
     "engram": {
-      "command": "engram",
+      "command": "mneme",
       "args": ["mcp"]
     }
   }
@@ -133,7 +127,7 @@ Manual alternative: add to your `~/.gemini/settings.json` (global) or `.gemini/s
 {
   "mcpServers": {
     "engram": {
-      "command": "engram",
+      "command": "mneme",
       "args": ["mcp"]
     }
   }
@@ -143,7 +137,7 @@ Manual alternative: add to your `~/.gemini/settings.json` (global) or `.gemini/s
 Or via the CLI:
 
 ```bash
-gemini mcp add engram engram mcp
+gemini mcp add engram mneme mcp
 ```
 
 ---
@@ -170,7 +164,7 @@ model_instructions_file = "~/.codex/engram-instructions.md"
 experimental_compact_prompt_file = "~/.codex/engram-compact-prompt.md"
 
 [mcp_servers.engram]
-command = "engram"
+command = "mneme"
 args = ["mcp"]
 ```
 
@@ -188,7 +182,7 @@ Add to `.vscode/mcp.json` in your project:
 {
   "servers": {
     "engram": {
-      "command": "engram",
+      "command": "mneme",
       "args": ["mcp"]
     }
   }
@@ -207,12 +201,12 @@ Add to `.vscode/mcp.json` in your project:
 **Option C: CLI one-liner:**
 
 ```bash
-code --add-mcp "{\"name\":\"engram\",\"command\":\"engram\",\"args\":[\"mcp\"]}"
+code --add-mcp "{\"name\":\"engram\",\"command\":\"mneme\",\"args\":[\"mcp\"]}"
 ```
 
 > **Using Claude Code extension in VS Code?** The Claude Code extension runs inside VS Code but uses its own MCP config. Follow the [Claude Code](#claude-code) instructions above — the `.claude/settings.json` config works whether you use Claude Code as a CLI or as a VS Code extension.
 
-> **Windows**: Make sure `engram.exe` is in your `PATH`. VS Code resolves MCP commands from the system PATH.
+> **Windows**: Make sure `mneme.exe` is in your `PATH`. VS Code resolves MCP commands from the system PATH.
 
 **Adding the Memory Protocol** (recommended — teaches the agent when to save and search memories):
 
@@ -247,7 +241,7 @@ See [Surviving Compaction](#surviving-compaction-recommended) for the minimal ve
 {
   "mcpServers": {
     "engram": {
-      "command": "engram",
+      "command": "mneme",
       "args": ["mcp"]
     }
   }
@@ -270,14 +264,14 @@ Add to your `.cursor/mcp.json` (same path on all platforms — it's project-rela
 {
   "mcpServers": {
     "engram": {
-      "command": "engram",
+      "command": "mneme",
       "args": ["mcp"]
     }
   }
 }
 ```
 
-> **Windows**: Make sure `engram.exe` is in your `PATH`. Cursor resolves MCP commands from the system PATH.
+> **Windows**: Make sure `mneme.exe` is in your `PATH`. Cursor resolves MCP commands from the system PATH.
 
 > **Memory Protocol:** Cursor uses `.mdc` rule files stored in `.cursor/rules/` (Cursor 0.43+). Create an `engram.mdc` file (any name works — the `.mdc` extension is what matters) and place it in one of:
 > - **Project-specific:** `.cursor/rules/engram.mdc` — commit to git so your whole team gets it
@@ -297,7 +291,7 @@ Add to your `~/.windsurf/mcp.json` (Windows: `%USERPROFILE%\.windsurf\mcp.json`)
 {
   "mcpServers": {
     "engram": {
-      "command": "engram",
+      "command": "mneme",
       "args": ["mcp"]
     }
   }
@@ -310,7 +304,7 @@ Add to your `~/.windsurf/mcp.json` (Windows: `%USERPROFILE%\.windsurf\mcp.json`)
 
 ## Any other MCP agent
 
-The pattern is always the same — point your agent's MCP config to `engram mcp` via stdio transport.
+The pattern is always the same — point your agent's MCP config to `mneme mcp` via stdio transport.
 
 ---
 
