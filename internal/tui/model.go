@@ -1,4 +1,4 @@
-// Package tui implements the Bubbletea terminal UI for Engram.
+// Package tui implements the Bubbletea terminal UI for Mneme.
 //
 // Following the Gentleman Bubbletea patterns:
 // - Screen constants as iota

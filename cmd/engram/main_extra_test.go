@@ -118,6 +118,7 @@ func stubRuntimeHooks(t *testing.T) {
 	oldGraphListObsForReindex := graphListObsForReindex
 	oldGraphCountEntities := graphCountEntities
 	oldGraphCountRelations := graphCountRelations
+	oldGraphRebuildCommunities := graphRebuildCommunities
 
 	storeNew = store.New
 	newHTTPServer = func(s *store.Store, _ int) *engramsrv.Server { return engramsrv.New(s, 0) }
@@ -195,6 +196,9 @@ func stubRuntimeHooks(t *testing.T) {
 	graphCountRelations = func(s *store.Store) (int, error) {
 		return s.CountRelations()
 	}
+	graphRebuildCommunities = func(s *store.Store, project string) error {
+		return s.RebuildCommunities(project)
+	}
 
 	t.Cleanup(func() {
 		storeNew = oldStoreNew
@@ -235,6 +239,7 @@ func stubRuntimeHooks(t *testing.T) {
 		graphListObsForReindex = oldGraphListObsForReindex
 		graphCountEntities = oldGraphCountEntities
 		graphCountRelations = oldGraphCountRelations
+		graphRebuildCommunities = oldGraphRebuildCommunities
 	})
 }
 
@@ -418,10 +423,10 @@ func TestCmdExportDefaultAndCmdImportErrors(t *testing.T) {
 	if recovered != nil || stderr != "" {
 		t.Fatalf("export default should succeed, panic=%v stderr=%q", recovered, stderr)
 	}
-	if !strings.Contains(stdout, "Exported to engram-export.json") {
+	if !strings.Contains(stdout, "Exported to mneme-export.json") {
 		t.Fatalf("unexpected default export output: %q", stdout)
 	}
-	if _, err := os.Stat(filepath.Join(workDir, "engram-export.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(workDir, "mneme-export.json")); err != nil {
 		t.Fatalf("expected default export file: %v", err)
 	}
 

@@ -2011,3 +2011,97 @@ func TestHandleRetrieveReturnsEmptyOnClosedStore(t *testing.T) {
 		t.Fatalf("expected empty result message on closed store, got %q", text)
 	}
 }
+
+// ─── IndexObservationEntities: Relation Persistence Tests ──────────────────
+
+func TestIndexObs_CreatesEntitiesAndRelations(t *testing.T) {
+	s := newMCPTestStore(t)
+
+	// Both "SQLite" and "PostgreSQL" are gazetteer tools.
+	// "Decided to use SQLite instead of PostgreSQL" → reemplaza_a(SQLite, PostgreSQL).
+	// Use obsID=0 so no FK constraint on observations table.
+	IndexObservationEntities(s, 0,
+		"Decided to use SQLite instead of PostgreSQL for the store",
+		"test-project")
+
+	rels, err := s.CountRelations()
+	if err != nil {
+		t.Fatalf("CountRelations: %v", err)
+	}
+	if rels == 0 {
+		t.Fatal("expected at least 1 relation from reemplaza_a pattern, got 0")
+	}
+}
+
+func TestIndexObs_BackfillsMissingEndpoints(t *testing.T) {
+	s := newMCPTestStore(t)
+
+	// "API" is NOT a gazetteer entity. "Redis" IS.
+	// Without backfill, the relation "API depende_de Redis" would be silently dropped.
+	// With backfill, "API" is auto-created as a concept entity.
+	IndexObservationEntities(s, 0,
+		"API depends on Redis for caching",
+		"test-project")
+
+	ents, err := s.ListEntities("", "test-project", 100)
+	if err != nil {
+		t.Fatalf("ListEntities: %v", err)
+	}
+
+	// "API" should have been auto-created as a concept.
+	foundAPI := false
+	for _, e := range ents {
+		if e.Name == "API" {
+			foundAPI = true
+			if e.EntityType != store.EntityTypeConcept {
+				t.Errorf("expected API to be concept, got %q", e.EntityType)
+			}
+		}
+	}
+	if !foundAPI {
+		t.Error("expected 'API' to be auto-created as concept entity for relation endpoint")
+	}
+
+	// Relation should exist.
+	rels, err := s.CountRelations()
+	if err != nil {
+		t.Fatalf("CountRelations: %v", err)
+	}
+	if rels == 0 {
+		t.Fatal("expected relation after endpoint backfill, got 0")
+	}
+}
+
+func TestIndexObs_CoOccurrenceProducesUsaRelations(t *testing.T) {
+	s := newMCPTestStore(t)
+
+	// "Go" and "SQLite" co-occur in text — extractor should infer usa(Go, SQLite).
+	IndexObservationEntities(s, 0,
+		"We use Go with SQLite for persistence",
+		"test-project")
+
+	rels, err := s.CountRelations()
+	if err != nil {
+		t.Fatalf("CountRelations: %v", err)
+	}
+	if rels == 0 {
+		t.Fatal("expected at least 1 co-occurrence 'usa' relation, got 0")
+	}
+}
+
+func TestIndexObs_NoRelationsWithoutEntities(t *testing.T) {
+	s := newMCPTestStore(t)
+
+	// Plain text with no entities → no relations.
+	IndexObservationEntities(s, 0,
+		"The quick brown fox jumps over the lazy dog",
+		"test-project")
+
+	rels, err := s.CountRelations()
+	if err != nil {
+		t.Fatalf("CountRelations: %v", err)
+	}
+	if rels != 0 {
+		t.Errorf("expected 0 relations from plain text, got %d", rels)
+	}
+}

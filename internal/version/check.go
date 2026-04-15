@@ -1,4 +1,4 @@
-// Package version checks for newer engram releases on GitHub.
+// Package version checks for newer mneme releases on GitHub.
 package version
 
 import (
@@ -15,7 +15,7 @@ import (
 
 const (
 	repoOwner = "Gentleman-Programming"
-	repoName  = "engram"
+	repoName  = "Mneme"
 )
 
 var (
@@ -150,9 +150,9 @@ func splitVersion(v string) [3]int {
 func updateInstructions() string {
 	switch runtime.GOOS {
 	case "darwin":
-		return "  brew update && brew upgrade engram"
+		return "  brew update && brew upgrade mneme"
 	case "linux":
-		return "  brew update && brew upgrade engram\n  or: go install github.com/Edcko/Mneme/cmd/engram@latest"
+		return "  brew update && brew upgrade mneme\n  or: go install github.com/Edcko/Mneme/cmd/engram@latest"
 	default:
 		return "  go install github.com/Edcko/Mneme/cmd/engram@latest\n  or: https://github.com/Edcko/Mneme/releases/latest"
 	}

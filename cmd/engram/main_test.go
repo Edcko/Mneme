@@ -376,7 +376,7 @@ func TestCmdContextAndStats(t *testing.T) {
 	if statsErr != "" {
 		t.Fatalf("expected no stderr from stats, got: %q", statsErr)
 	}
-	if !strings.Contains(statsOut, "Engram Memory Stats") || !strings.Contains(statsOut, "project-x") {
+	if !strings.Contains(statsOut, "Mneme Memory Stats") || !strings.Contains(statsOut, "project-x") {
 		t.Fatalf("unexpected stats output: %q", statsOut)
 	}
 }
@@ -1462,6 +1462,136 @@ func TestCmdGraphReindexProgressReporting(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Observations processed: 55") {
 		t.Fatalf("expected 55 processed, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphRebuildEmpty(t *testing.T) {
+	cfg := testConfig(t)
+
+	withArgs(t, "engram", "graph", "rebuild")
+	stdout, stderr := captureOutput(t, func() { cmdGraphRebuild(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Rebuilding communities for ALL projects") {
+		t.Fatalf("expected rebuild header, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Rebuild complete") {
+		t.Fatalf("expected rebuild complete, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Communities: 0") {
+		t.Fatalf("expected 0 communities for empty db, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphRebuildWithProject(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed entities and relations, then rebuild communities.
+	aliceID := mustSeedEntity(t, cfg, "Alice", store.EntityTypePerson, "", "webapp")
+	reactID := mustSeedEntity(t, cfg, "React", store.EntityTypeConcept, "", "webapp")
+	mustSeedRelation(t, cfg, aliceID, reactID, "uses")
+
+	withArgs(t, "engram", "graph", "rebuild", "--project", "webapp")
+	stdout, stderr := captureOutput(t, func() { cmdGraphRebuild(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, `project "webapp"`) {
+		t.Fatalf("expected project filter in output, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Rebuild complete") {
+		t.Fatalf("expected rebuild complete, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Communities: 1") {
+		t.Fatalf("expected 1 community, got: %q", stdout)
+	}
+
+	// Verify communities can be listed after rebuild.
+	withArgs(t, "engram", "graph", "communities", "--project", "webapp")
+	commOut, commErr := captureOutput(t, func() { cmdGraphCommunities(cfg) })
+	if commErr != "" {
+		t.Fatalf("expected no stderr from communities, got: %q", commErr)
+	}
+	if !strings.Contains(commOut, "Communities") {
+		t.Fatalf("expected communities output after rebuild, got: %q", commOut)
+	}
+}
+
+func TestCmdGraphRebuildNoProject(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed entities without project.
+	aID := mustSeedEntity(t, cfg, "Alpha", store.EntityTypeConcept, "", "")
+	bID := mustSeedEntity(t, cfg, "Beta", store.EntityTypeConcept, "", "")
+	mustSeedRelation(t, cfg, aID, bID, "related_to")
+
+	withArgs(t, "engram", "graph", "rebuild")
+	stdout, stderr := captureOutput(t, func() { cmdGraphRebuild(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Rebuilding communities for ALL projects") {
+		t.Fatalf("expected ALL projects header, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Communities: 1") {
+		t.Fatalf("expected 1 community, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphRebuildIsIdempotent(t *testing.T) {
+	cfg := testConfig(t)
+
+	aliceID := mustSeedEntity(t, cfg, "Alice", store.EntityTypePerson, "", "proj")
+	reactID := mustSeedEntity(t, cfg, "React", store.EntityTypeConcept, "", "proj")
+	mustSeedRelation(t, cfg, aliceID, reactID, "uses")
+
+	// First rebuild.
+	withArgs(t, "engram", "graph", "rebuild", "--project", "proj")
+	stdout1, _ := captureOutput(t, func() { cmdGraphRebuild(cfg) })
+	if !strings.Contains(stdout1, "Communities: 1") {
+		t.Fatalf("first rebuild: expected 1 community, got: %q", stdout1)
+	}
+
+	// Second rebuild — should give same result.
+	withArgs(t, "engram", "graph", "rebuild", "--project", "proj")
+	stdout2, _ := captureOutput(t, func() { cmdGraphRebuild(cfg) })
+	if !strings.Contains(stdout2, "Communities: 1") {
+		t.Fatalf("second rebuild: expected 1 community, got: %q", stdout2)
+	}
+}
+
+func TestCmdGraphRebuildRoutesViaCmdGraph(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Verify "rebuild" subcommand routes through cmdGraph.
+	withArgs(t, "engram", "graph", "rebuild")
+	stdout, stderr := captureOutput(t, func() { cmdGraph(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Rebuild complete") {
+		t.Fatalf("expected rebuild output via cmdGraph, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphCommunitiesSuggestsRebuild(t *testing.T) {
+	cfg := testConfig(t)
+
+	withArgs(t, "engram", "graph", "communities")
+	stdout, stderr := captureOutput(t, func() { cmdGraphCommunities(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "No communities found") {
+		t.Fatalf("expected no communities message, got: %q", stdout)
+	}
+	// Must NOT say "via MCP" — the CLI rebuild command exists now.
+	if strings.Contains(stdout, "via MCP") {
+		t.Fatalf("should not say 'via MCP' in rebuild hint, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "mneme graph rebuild") {
+		t.Fatalf("expected 'mneme graph rebuild' hint, got: %q", stdout)
 	}
 }
 

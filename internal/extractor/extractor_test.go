@@ -1129,6 +1129,80 @@ func TestIntegration_NewRelationsInParagraph(t *testing.T) {
 	}
 }
 
+// ─── Co-occurrence "usa" Inference ─────────────────────────────────────────
+
+func TestCoOccurrence_LanguageUsesTool(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "Go" (language) and "SQLite" (tool) co-occur — should infer Go usa SQLite.
+	result := ex.Extract("We use Go with SQLite for persistence")
+
+	if !hasRelation(result.Relations, "usa", "Go", "SQLite") {
+		t.Errorf("expected co-occurrence usa(Go, SQLite), got: %v", result.Relations)
+	}
+	// Reverse direction should NOT exist — tools don't "use" languages.
+	if hasRelation(result.Relations, "usa", "SQLite", "Go") {
+		t.Error("tools should not 'usa' languages")
+	}
+}
+
+func TestCoOccurrence_ToolUsesTool(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "Docker" and "Kubernetes" co-occur as tools.
+	result := ex.Extract("Deploy with Docker and Kubernetes")
+
+	if !hasRelation(result.Relations, "usa", "Docker", "Kubernetes") {
+		t.Errorf("expected co-occurrence usa(Docker, Kubernetes), got: %v", result.Relations)
+	}
+}
+
+func TestCoOccurrence_NoSelfRelation(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "Go" appears only once — no self-relation.
+	result := ex.Extract("We use Go for the backend")
+
+	for _, r := range result.Relations {
+		if r.Relation == "usa" && r.SourceName == "Go" && r.TargetName == "Go" {
+			t.Error("co-occurrence should not create self-relation")
+		}
+	}
+}
+
+func TestCoOccurrence_ConceptsNotUsedAsSource(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "microservices" is a concept — it should not be a "usa" source.
+	result := ex.Extract("We use microservices with Docker")
+
+	for _, r := range result.Relations {
+		if r.Relation == "usa" && r.SourceName == "microservices" {
+			t.Errorf("concepts should not be 'usa' source, got: %v", r)
+		}
+	}
+	// But Docker (tool) can use microservices as target (concept) — wait, our
+	// code only creates relations where target is EntityTypeTool. So concepts
+	// as targets should NOT produce relations either.
+	for _, r := range result.Relations {
+		if r.Relation == "usa" && r.SourceName == "Docker" && r.TargetName == "microservices" {
+			// Actually this is fine — tools can "use" concepts.
+			// But our implementation only targets EntityTypeTool, so this won't happen.
+		}
+	}
+}
+
+func TestCoOccurrence_LowerConfidence(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	result := ex.Extract("Go and SQLite for persistence")
+	for _, r := range result.Relations {
+		if r.Relation == "usa" && r.Confidence >= 0.75 {
+			t.Errorf("co-occurrence relations should have low confidence, got %.2f", r.Confidence)
+		}
+	}
+}
+
 // ─── Regression: No False Positives on Plain Text ─────────────────────────
 
 func TestRegression_PlainTextNoSpuriousConcepts(t *testing.T) {

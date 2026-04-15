@@ -1,6 +1,9 @@
 package dashboard
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
@@ -15,6 +18,13 @@ import (
 )
 
 // ─── Test Helpers ──────────────────────────────────────────────────────────────
+
+// testHashKey returns the SHA-256 hex digest of a raw API key,
+// matching the store's internal hashKey function.
+func testHashKey(raw string) string {
+	h := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(h[:])
+}
 
 // testEnv holds all the wiring for a dashboard integration test.
 type testEnv struct {
@@ -50,7 +60,7 @@ func newTestEnv(t *testing.T) *testEnv {
 
 	// Seed API key
 	rawKey := "mn_testkey1234567890abcdef"
-	if err := s.CreateAPIKey(project.ID, rawKey, "test-key"); err != nil {
+	if err := s.CreateAPIKey(context.Background(), project.ID, testHashKey(rawKey), "test-key"); err != nil {
 		t.Fatalf("create api key: %v", err)
 	}
 
@@ -609,7 +619,7 @@ func TestKeysPageShowsRegisteredKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if err := s.CreateAPIKey(project.ID, rawKey, "login-key"); err != nil {
+	if err := s.CreateAPIKey(context.Background(), project.ID, testHashKey(rawKey), "login-key"); err != nil {
 		t.Fatalf("create api key: %v", err)
 	}
 
@@ -663,7 +673,7 @@ func TestKeysPageEmpty(t *testing.T) {
 		t.Fatalf("create project: %v", err)
 	}
 	rawKey := "mn_emptykeytest1234567890ab"
-	if err := s.CreateAPIKey(project.ID, rawKey, "login-key"); err != nil {
+	if err := s.CreateAPIKey(context.Background(), project.ID, testHashKey(rawKey), "login-key"); err != nil {
 		t.Fatalf("create api key: %v", err)
 	}
 
@@ -828,7 +838,7 @@ func TestLogPageEmpty(t *testing.T) {
 		t.Fatalf("create project: %v", err)
 	}
 	rawKey := "mn_nologtest1234567890abcdef"
-	if err := s.CreateAPIKey(project.ID, rawKey, "login-key"); err != nil {
+	if err := s.CreateAPIKey(context.Background(), project.ID, testHashKey(rawKey), "login-key"); err != nil {
 		t.Fatalf("create api key: %v", err)
 	}
 
@@ -922,7 +932,7 @@ func TestExpiredTokenRedirectsToLogin(t *testing.T) {
 	// Create project + key
 	project, _ := s.CreateProject("expired-test", "e@t.com", "s")
 	rawKey := "mn_expiredtest1234567890ab"
-	s.CreateAPIKey(project.ID, rawKey, "test")
+	s.CreateAPIKey(context.Background(), project.ID, testHashKey(rawKey), "test")
 
 	// Generate an already-expired token
 	expiredToken, err := authMgr.GenerateToken(

@@ -498,7 +498,10 @@ func IndexObservationEntities(s *store.Store, obsID int64, content, project stri
 		}
 	}
 
-	// Insert relations — only when both endpoints were successfully upserted.
+	// Insert relations — auto-create missing endpoints as concept entities.
+	// Regex rules capture raw text tokens (e.g. "API", "Backend") that may not
+	// be gazetteer entities.  Without backfill, every such relation is silently
+	// dropped, which is why reindex produced 0 relations on real data.
 	var obsIDPtr *int64
 	if obsID > 0 {
 		obsIDPtr = &obsID
@@ -506,6 +509,22 @@ func IndexObservationEntities(s *store.Store, obsID int64, content, project stri
 	for _, r := range result.Relations {
 		srcID, srcOK := entityIDs[strings.ToLower(r.SourceName)]
 		tgtID, tgtOK := entityIDs[strings.ToLower(r.TargetName)]
+		if !srcOK {
+			id, err := s.UpsertEntity(r.SourceName, store.EntityTypeConcept, "", project)
+			if err == nil {
+				srcID = id
+				srcOK = true
+				entityIDs[strings.ToLower(r.SourceName)] = id
+			}
+		}
+		if !tgtOK {
+			id, err := s.UpsertEntity(r.TargetName, store.EntityTypeConcept, "", project)
+			if err == nil {
+				tgtID = id
+				tgtOK = true
+				entityIDs[strings.ToLower(r.TargetName)] = id
+			}
+		}
 		if !srcOK || !tgtOK {
 			continue
 		}

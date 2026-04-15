@@ -215,10 +215,26 @@ func (r *RuleExtractor) extractRelations(text string, entities []ExtractedEntity
 		}
 	}
 
-	// Infer implicit "usa" relations when a gazetteer tool appears near another.
-	knownNames := make(map[string]bool)
-	for _, e := range entities {
-		knownNames[e.Name] = true
+	// Infer implicit "usa" relations when entities co-occur in the same text.
+	// Heuristic: languages "use" tools, tools "use" other tools.
+	// Only creates relations between already-extracted entities — no noise.
+	for i, e1 := range entities {
+		if e1.EntityType != EntityTypeLanguage && e1.EntityType != EntityTypeTool {
+			continue
+		}
+		for j, e2 := range entities {
+			if i == j {
+				continue
+			}
+			if e2.EntityType == EntityTypeTool {
+				results = append(results, ExtractedRelation{
+					SourceName: e1.Name,
+					Relation:   "usa",
+					TargetName: e2.Name,
+					Confidence: 0.45,
+				})
+			}
+		}
 	}
 
 	return results

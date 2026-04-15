@@ -122,6 +122,9 @@ var (
 	graphGetCommunities = func(s *store.Store, project string, limit int) ([]store.Community, error) {
 		return s.GetCommunities(project, limit)
 	}
+	graphRebuildCommunities = func(s *store.Store, project string) error {
+		return s.RebuildCommunities(project)
+	}
 
 	// Graph reindex operations — injectable for testing.
 	graphIndexObsEntities  = mcp.IndexObservationEntities
@@ -604,16 +607,16 @@ func cmdStats(cfg store.Config) {
 		projects = strings.Join(stats.Projects, ", ")
 	}
 
-	fmt.Printf("Engram Memory Stats\n")
+	fmt.Printf("Mneme Memory Stats\n")
 	fmt.Printf("  Sessions:     %d\n", stats.TotalSessions)
 	fmt.Printf("  Observations: %d\n", stats.TotalObservations)
 	fmt.Printf("  Prompts:      %d\n", stats.TotalPrompts)
 	fmt.Printf("  Projects:     %s\n", projects)
-	fmt.Printf("  Database:     %s/engram.db\n", cfg.DataDir)
+	fmt.Printf("  Database:     %s/mneme.db\n", cfg.DataDir)
 }
 
 func cmdExport(cfg store.Config) {
-	outFile := "engram-export.json"
+	outFile := "mneme-export.json"
 	if len(os.Args) > 2 {
 		outFile = os.Args[2]
 	}
@@ -782,7 +785,7 @@ func cmdSync(cfg store.Config) {
 	fmt.Printf("  Prompts:      %d\n", result.PromptsExported)
 	fmt.Println()
 	fmt.Println("Add to git:")
-	fmt.Printf("  git add .engram/ && git commit -m \"sync engram memories\"\n")
+	fmt.Printf("  git add .engram/ && git commit -m \"sync mneme memories\"\n")
 }
 
 func cmdProjects(cfg store.Config) {
@@ -1314,6 +1317,8 @@ func cmdGraph(cfg store.Config) {
 		cmdGraphCommunities(cfg)
 	case "reindex":
 		cmdGraphReindex(cfg)
+	case "rebuild":
+		cmdGraphRebuild(cfg)
 	case "help", "--help", "-h":
 		fmt.Fprint(os.Stderr, graphUsage)
 	default:
@@ -1336,6 +1341,8 @@ const graphUsage = `Usage:
                       List communities (clusters of connected entities)
   mneme graph reindex [--project PROJECT]
                       Reindex all observations to extract entities and relations
+  mneme graph rebuild [--project PROJECT]
+                      Rebuild communities from current entities and relations
 
 Options:
   --type TYPE       Filter by entity type (person, project, file, tool, concept, language)
@@ -1645,7 +1652,7 @@ func cmdGraphCommunities(cfg store.Config) {
 	}
 
 	if len(communities) == 0 {
-		fmt.Println("No communities found. Run 'mneme graph rebuild' via MCP to detect communities.")
+		fmt.Println("No communities found. Run 'mneme graph rebuild' to detect communities.")
 		return
 	}
 
@@ -1753,6 +1760,43 @@ func cmdGraphReindex(cfg store.Config) {
 	}
 }
 
+func cmdGraphRebuild(cfg store.Config) {
+	project := ""
+
+	for i := 3; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--project":
+			if i+1 < len(os.Args) {
+				project = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	if project != "" {
+		fmt.Printf("Rebuilding communities for project %q...\n", project)
+	} else {
+		fmt.Println("Rebuilding communities for ALL projects...")
+	}
+
+	if err := graphRebuildCommunities(s, project); err != nil {
+		fatal(err)
+	}
+
+	// Report how many communities were created.
+	communities, _ := graphGetCommunities(s, project, 0)
+	count := len(communities)
+	fmt.Println()
+	fmt.Println("Rebuild complete:")
+	fmt.Printf("  Communities: %d\n", count)
+}
+
 func cmdSetup() {
 	agents := setupSupportedAgents()
 
@@ -1809,8 +1853,8 @@ func printPostInstall(agent string) {
 		fmt.Println("  1. Restart OpenCode — plugin + MCP server are ready")
 		fmt.Println("  2. Run 'mneme serve &' for session tracking (HTTP API)")
 	case "claude-code":
-		// Offer to add engram tools to the permissions allowlist
-		fmt.Print("\nAdd engram tools to ~/.claude/settings.json allowlist?\n")
+		// Offer to add mneme tools to the permissions allowlist
+		fmt.Print("\nAdd mneme tools to ~/.claude/settings.json allowlist?\n")
 		fmt.Print("This prevents Claude Code from asking permission on every tool call.\n")
 		fmt.Print("Add to allowlist? (y/N): ")
 		var answer string
@@ -1821,7 +1865,7 @@ func printPostInstall(agent string) {
 				fmt.Fprintf(os.Stderr, "  warning: could not update allowlist: %v\n", err)
 				fmt.Fprintln(os.Stderr, "  You can add them manually to permissions.allow in ~/.claude/settings.json")
 			} else {
-				fmt.Println("  ✓ Engram tools added to allowlist")
+				fmt.Println("  ✓ Mneme tools added to allowlist")
 			}
 		} else {
 			fmt.Println("  Skipped. You can add them later to permissions.allow in ~/.claude/settings.json")
@@ -1830,17 +1874,17 @@ func printPostInstall(agent string) {
 		fmt.Println("\nNext steps:")
 		fmt.Println("  1. Restart Claude Code — the plugin is active immediately")
 		fmt.Println("  2. Verify with: claude plugin list")
-		fmt.Println("  3. MCP config written to ~/.claude/mcp/engram.json using absolute binary path")
+		fmt.Println("  3. MCP config written to ~/.claude/mcp/mneme.json using absolute binary path")
 		fmt.Println("     (survives plugin auto-updates; re-run 'mneme setup claude-code' if you move the binary)")
 	case "gemini-cli":
 		fmt.Println("\nNext steps:")
 		fmt.Println("  1. Restart Gemini CLI so MCP config is reloaded")
-		fmt.Println("  2. Verify ~/.gemini/settings.json includes mcpServers.engram")
+		fmt.Println("  2. Verify ~/.gemini/settings.json includes mcpServers.mneme")
 		fmt.Println("  3. Verify ~/.gemini/system.md + ~/.gemini/.env exist for compaction recovery")
 	case "codex":
 		fmt.Println("\nNext steps:")
 		fmt.Println("  1. Restart Codex so MCP config is reloaded")
-		fmt.Println("  2. Verify ~/.codex/config.toml has [mcp_servers.engram]")
+		fmt.Println("  2. Verify ~/.codex/config.toml has [mcp_servers.mneme]")
 		fmt.Println("  3. Verify model_instructions_file + experimental_compact_prompt_file are set")
 	}
 }
@@ -1972,7 +2016,7 @@ Commands:
   timeline <obs_id>  Show chronological context around an observation [--before N] [--after N]
   context [project]  Show recent context from previous sessions
   stats              Show memory system statistics
-  export [file]      Export all memories to JSON (default: engram-export.json)
+   export [file]      Export all memories to JSON (default: mneme-export.json)
   import <file>      Import memories from a JSON export file
   projects list      List all projects with observation, session, and prompt counts
   projects consolidate [--all] [--dry-run]
@@ -1986,8 +2030,9 @@ Commands:
   graph traverse <id>
                      BFS graph traversal from entity [--depth N] [--project PROJECT]
   graph communities  List communities (clusters of connected entities) [--project PROJECT]
-  graph reindex      Reindex all observations to extract entities/relations [--project PROJECT]
-    setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
+   graph reindex      Reindex all observations to extract entities/relations [--project PROJECT]
+   graph rebuild      Rebuild communities from current entities/relations [--project PROJECT]
+     setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
    sync               Export new memories as compressed chunk to .engram/
                         --import   Import new chunks from .engram/ into local DB
                         --status   Show sync status (local vs remote chunks)
@@ -2010,7 +2055,7 @@ Environment:
 MCP Configuration (add to your agent's config):
   {
     "mcp": {
-      "engram": {
+      "mneme": {
         "type": "stdio",
         "command": "mneme",
         "args": ["mcp", "--tools=agent,graph"]
@@ -2027,7 +2072,7 @@ func fatal(err error) {
 
 // resolveHomeFallback tries platform-specific environment variables to find
 // a home directory when os.UserHomeDir() fails. This commonly happens on
-// Windows when engram is launched as an MCP subprocess without full env
+// Windows when mneme is launched as an MCP subprocess without full env
 // propagation.
 func resolveHomeFallback() string {
 	// Windows: try common env vars that might be set even when
