@@ -123,6 +123,18 @@ var (
 		return s.GetCommunities(project, limit)
 	}
 
+	// Graph reindex operations — injectable for testing.
+	graphIndexObsEntities  = mcp.IndexObservationEntities
+	graphListObsForReindex = func(s *store.Store, project string, offset, limit int) ([]store.Observation, error) {
+		return s.ListObservationsForReindex(project, offset, limit)
+	}
+	graphCountEntities = func(s *store.Store, project string) (int, error) {
+		return s.CountEntities(project)
+	}
+	graphCountRelations = func(s *store.Store) (int, error) {
+		return s.CountRelations()
+	}
+
 	exitFunc = os.Exit
 
 	stdinScanner = func() *bufio.Scanner { return bufio.NewScanner(os.Stdin) }
@@ -1300,6 +1312,8 @@ func cmdGraph(cfg store.Config) {
 		cmdGraphTraverse(cfg)
 	case "communities":
 		cmdGraphCommunities(cfg)
+	case "reindex":
+		cmdGraphReindex(cfg)
 	case "help", "--help", "-h":
 		fmt.Fprint(os.Stderr, graphUsage)
 	default:
@@ -1320,6 +1334,8 @@ const graphUsage = `Usage:
                       BFS graph traversal from an entity
   engram graph communities [--project PROJECT] [--limit N]
                       List communities (clusters of connected entities)
+  engram graph reindex [--project PROJECT]
+                      Reindex all observations to extract entities and relations
 
 Options:
   --type TYPE       Filter by entity type (person, project, file, tool, concept, language)
@@ -1650,6 +1666,93 @@ func cmdGraphCommunities(cfg store.Config) {
 	}
 }
 
+func cmdGraphReindex(cfg store.Config) {
+	project := ""
+
+	for i := 3; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--project":
+			if i+1 < len(os.Args) {
+				project = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	// Capture entity/relation counts before reindex.
+	entitiesBefore, _ := graphCountEntities(s, project)
+	relationsBefore, _ := graphCountRelations(s)
+
+	// Paginate through all observations in batches of 100.
+	const batchSize = 100
+	offset := 0
+	totalProcessed := 0
+	totalErrors := 0
+
+	if project != "" {
+		fmt.Printf("Reindexing observations for project %q...\n", project)
+	} else {
+		fmt.Println("Reindexing ALL observations...")
+	}
+
+	for {
+		obs, err := graphListObsForReindex(s, project, offset, batchSize)
+		if err != nil {
+			fatal(err)
+		}
+		if len(obs) == 0 {
+			break
+		}
+
+		for _, o := range obs {
+			proj := ""
+			if o.Project != nil {
+				proj = *o.Project
+			}
+			graphIndexObsEntities(s, o.ID, o.Content, proj)
+			totalProcessed++
+
+			if totalProcessed%50 == 0 {
+				fmt.Printf("  processed %d observations...\n", totalProcessed)
+			}
+		}
+
+		// If we got fewer than batchSize, we've reached the end.
+		if len(obs) < batchSize {
+			break
+		}
+		offset += batchSize
+	}
+
+	// Capture entity/relation counts after reindex.
+	entitiesAfter, _ := graphCountEntities(s, project)
+	relationsAfter, _ := graphCountRelations(s)
+
+	newEntities := entitiesAfter - entitiesBefore
+	if newEntities < 0 {
+		newEntities = 0
+	}
+	newRelations := relationsAfter - relationsBefore
+	if newRelations < 0 {
+		newRelations = 0
+	}
+
+	fmt.Println()
+	fmt.Println("Reindex complete:")
+	fmt.Printf("  Observations processed: %d\n", totalProcessed)
+	fmt.Printf("  Entities (new):        %d (total: %d)\n", newEntities, entitiesAfter)
+	fmt.Printf("  Relations (new):       %d (total: %d)\n", newRelations, relationsAfter)
+	if totalErrors > 0 {
+		fmt.Printf("  Errors:                %d\n", totalErrors)
+	}
+}
+
 func cmdSetup() {
 	agents := setupSupportedAgents()
 
@@ -1883,7 +1986,8 @@ Commands:
   graph traverse <id>
                      BFS graph traversal from entity [--depth N] [--project PROJECT]
   graph communities  List communities (clusters of connected entities) [--project PROJECT]
-   setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
+  graph reindex      Reindex all observations to extract entities/relations [--project PROJECT]
+    setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
    sync               Export new memories as compressed chunk to .engram/
                         --import   Import new chunks from .engram/ into local DB
                         --status   Show sync status (local vs remote chunks)

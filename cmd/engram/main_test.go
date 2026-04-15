@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -1005,6 +1006,16 @@ func TestCmdGraphRoutesSubcommands(t *testing.T) {
 	withArgs(t, "engram", "graph")
 	stdout2, _ := captureOutput(t, func() { cmdGraph(cfg) })
 	_ = stdout2
+
+	// "reindex" subcommand
+	withArgs(t, "engram", "graph", "reindex")
+	stdout3, stderr3 := captureOutput(t, func() { cmdGraph(cfg) })
+	if stderr3 != "" {
+		t.Fatalf("expected no stderr for reindex, got: %q", stderr3)
+	}
+	if !strings.Contains(stdout3, "Reindexing ALL observations") {
+		t.Fatalf("expected reindex output, got: %q", stdout3)
+	}
 }
 
 func TestCmdGraphUnknownSubcommand(t *testing.T) {
@@ -1319,6 +1330,138 @@ func TestMainDispatchGraph(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "No entities found") && !strings.Contains(stdout, "Entities") {
 		t.Fatalf("unexpected graph entities output: %q", stdout)
+	}
+}
+
+func TestCmdGraphReindexEmpty(t *testing.T) {
+	cfg := testConfig(t)
+
+	withArgs(t, "engram", "graph", "reindex")
+	stdout, stderr := captureOutput(t, func() { cmdGraphReindex(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Reindexing ALL observations") {
+		t.Fatalf("expected reindex header, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Observations processed: 0") {
+		t.Fatalf("expected 0 processed, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Reindex complete") {
+		t.Fatalf("expected reindex complete, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphReindexWithObservations(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed observations with extractable entities.
+	// "Go" is a known language in the gazetteer, "SQLite" is a known tool.
+	mustSeedObservation(t, cfg, "s-ri-1", "reindex-proj", "note",
+		"Switched to Go", "**What**: Switched backend to Go and SQLite", "project")
+	mustSeedObservation(t, cfg, "s-ri-2", "reindex-proj", "decision",
+		"Use React", "**What**: Use React for the frontend UI", "project")
+
+	withArgs(t, "engram", "graph", "reindex")
+	stdout, stderr := captureOutput(t, func() { cmdGraphReindex(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Observations processed: 2") {
+		t.Fatalf("expected 2 processed, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Reindex complete") {
+		t.Fatalf("expected reindex complete, got: %q", stdout)
+	}
+
+	// Verify entities were created by checking via graph entities command
+	withArgs(t, "engram", "graph", "entities", "--project", "reindex-proj")
+	entOut, _ := captureOutput(t, func() { cmdGraphEntities(cfg) })
+	if !strings.Contains(entOut, "Entities") {
+		t.Fatalf("expected entities after reindex, got: %q", entOut)
+	}
+}
+
+func TestCmdGraphReindexWithProjectFilter(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed observations in two different projects.
+	mustSeedObservation(t, cfg, "s-ri-a", "proj-a", "note",
+		"Alpha setup", "Built with Go and SQLite for storage", "project")
+	mustSeedObservation(t, cfg, "s-ri-b", "proj-b", "note",
+		"Beta setup", "Built with Python and PostgreSQL for storage", "project")
+
+	// Reindex only proj-a
+	withArgs(t, "engram", "graph", "reindex", "--project", "proj-a")
+	stdout, stderr := captureOutput(t, func() { cmdGraphReindex(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, `project "proj-a"`) {
+		t.Fatalf("expected project filter in output, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Observations processed: 1") {
+		t.Fatalf("expected 1 processed (proj-a only), got: %q", stdout)
+	}
+
+	// proj-b should NOT have entities yet
+	withArgs(t, "engram", "graph", "entities", "--project", "proj-b")
+	entOutB, _ := captureOutput(t, func() { cmdGraphEntities(cfg) })
+	if !strings.Contains(entOutB, "No entities found") {
+		t.Fatalf("expected no entities for proj-b before reindex, got: %q", entOutB)
+	}
+
+	// Now reindex proj-b
+	withArgs(t, "engram", "graph", "reindex", "--project", "proj-b")
+	stdout2, _ := captureOutput(t, func() { cmdGraphReindex(cfg) })
+	if !strings.Contains(stdout2, "Observations processed: 1") {
+		t.Fatalf("expected 1 processed for proj-b, got: %q", stdout2)
+	}
+}
+
+func TestCmdGraphReindexShowsEntityAndRelationCounts(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed an observation with content that produces entities AND relations.
+	// The extractor recognizes patterns like "X usa Y" for relations.
+	mustSeedObservation(t, cfg, "s-rel", "graph-ri", "decision",
+		"Stack choice", "Switched to Go. Go usa SQLite for persistence.", "project")
+
+	withArgs(t, "engram", "graph", "reindex")
+	stdout, stderr := captureOutput(t, func() { cmdGraphReindex(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Entities (new):") {
+		t.Fatalf("expected entities count, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Relations (new):") {
+		t.Fatalf("expected relations count, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "total:") {
+		t.Fatalf("expected total counts, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphReindexProgressReporting(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed enough observations to trigger progress reporting (every 50).
+	for i := 0; i < 55; i++ {
+		mustSeedObservation(t, cfg, fmt.Sprintf("s-prog-%d", i), "prog-proj", "note",
+			fmt.Sprintf("Note %d", i), fmt.Sprintf("Content for note %d about Go and SQLite", i), "project")
+	}
+
+	withArgs(t, "engram", "graph", "reindex")
+	stdout, stderr := captureOutput(t, func() { cmdGraphReindex(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "processed 50 observations") {
+		t.Fatalf("expected progress message at 50, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Observations processed: 55") {
+		t.Fatalf("expected 55 processed, got: %q", stdout)
 	}
 }
 

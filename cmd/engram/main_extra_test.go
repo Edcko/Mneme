@@ -114,6 +114,10 @@ func stubRuntimeHooks(t *testing.T) {
 	oldCloudDashboardNew := cloudDashboardNew
 	oldRunCloudServer := runCloudServer
 	oldGenerateRandomSecret := generateRandomSecret
+	oldGraphIndexObsEntities := graphIndexObsEntities
+	oldGraphListObsForReindex := graphListObsForReindex
+	oldGraphCountEntities := graphCountEntities
+	oldGraphCountRelations := graphCountRelations
 
 	storeNew = store.New
 	newHTTPServer = func(s *store.Store, _ int) *engramsrv.Server { return engramsrv.New(s, 0) }
@@ -181,6 +185,16 @@ func stubRuntimeHooks(t *testing.T) {
 	cloudDashboardNew = clouddashboard.New // use real dashboard construction
 	runCloudServer = func(srv *http.Server) error { return nil }
 	generateRandomSecret = func() string { return "test-secret-value" }
+	graphIndexObsEntities = mcp.IndexObservationEntities
+	graphListObsForReindex = func(s *store.Store, project string, offset, limit int) ([]store.Observation, error) {
+		return s.ListObservationsForReindex(project, offset, limit)
+	}
+	graphCountEntities = func(s *store.Store, project string) (int, error) {
+		return s.CountEntities(project)
+	}
+	graphCountRelations = func(s *store.Store) (int, error) {
+		return s.CountRelations()
+	}
 
 	t.Cleanup(func() {
 		storeNew = oldStoreNew
@@ -217,6 +231,10 @@ func stubRuntimeHooks(t *testing.T) {
 		cloudDashboardNew = oldCloudDashboardNew
 		runCloudServer = oldRunCloudServer
 		generateRandomSecret = oldGenerateRandomSecret
+		graphIndexObsEntities = oldGraphIndexObsEntities
+		graphListObsForReindex = oldGraphListObsForReindex
+		graphCountEntities = oldGraphCountEntities
+		graphCountRelations = oldGraphCountRelations
 	})
 }
 

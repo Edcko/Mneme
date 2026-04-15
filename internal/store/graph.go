@@ -477,6 +477,26 @@ func (s *Store) ListEntities(entityType, project string, limit int) ([]Entity, e
 	return results, rows.Err()
 }
 
+// CountEntities returns the total number of entities, optionally filtered by project.
+func (s *Store) CountEntities(project string) (int, error) {
+	query := "SELECT COUNT(*) FROM entities"
+	args := []any{}
+	if project != "" {
+		query += " WHERE ifnull(project, '') = ?"
+		args = append(args, project)
+	}
+	var count int
+	err := s.db.QueryRow(query, args...).Scan(&count)
+	return count, err
+}
+
+// CountRelations returns the total number of relations.
+func (s *Store) CountRelations() (int, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM relations").Scan(&count)
+	return count, err
+}
+
 // ─── Relation Operations ──────────────────────────────────────────────────────
 
 // AddRelation creates a new directed relation between two entities.

@@ -512,3 +512,122 @@ func TestRebuildCommunities(t *testing.T) {
 		}
 	}
 }
+
+// ─── Count and Reindex Helpers ─────────────────────────────────────────────────
+
+func TestCountEntities(t *testing.T) {
+	s := newGraphStore(t)
+
+	// Initially zero
+	count, err := s.CountEntities("")
+	if err != nil {
+		t.Fatalf("CountEntities: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 entities, got %d", count)
+	}
+
+	s.UpsertEntity("Go", store.EntityTypeLanguage, "backend lang", "proj-a")
+	s.UpsertEntity("React", store.EntityTypeConcept, "ui library", "proj-a")
+	s.UpsertEntity("SQLite", store.EntityTypeTool, "embedded db", "proj-b")
+
+	// Count all
+	count, err = s.CountEntities("")
+	if err != nil {
+		t.Fatalf("CountEntities: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("expected 3 entities, got %d", count)
+	}
+
+	// Count by project
+	countProj, err := s.CountEntities("proj-a")
+	if err != nil {
+		t.Fatalf("CountEntities proj-a: %v", err)
+	}
+	if countProj != 2 {
+		t.Fatalf("expected 2 entities for proj-a, got %d", countProj)
+	}
+}
+
+func TestCountRelations(t *testing.T) {
+	s := newGraphStore(t)
+
+	count, err := s.CountRelations()
+	if err != nil {
+		t.Fatalf("CountRelations: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 relations, got %d", count)
+	}
+
+	srcID, _ := s.UpsertEntity("Go", store.EntityTypeLanguage, "", "p")
+	tgtID, _ := s.UpsertEntity("SQLite", store.EntityTypeTool, "", "p")
+	s.AddRelation(srcID, tgtID, "usa", nil)
+
+	count, err = s.CountRelations()
+	if err != nil {
+		t.Fatalf("CountRelations: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 relation, got %d", count)
+	}
+}
+
+func TestListObservationsForReindex(t *testing.T) {
+	s := newGraphStore(t)
+
+	// Seed observations
+	s.CreateSession("s-ri", "ri-proj", "/tmp")
+	s.AddObservation(store.AddObservationParams{
+		SessionID: "s-ri", Type: "note", Title: "first",
+		Content: "first content about Go", Project: "ri-proj", Scope: "project",
+	})
+	s.AddObservation(store.AddObservationParams{
+		SessionID: "s-ri", Type: "note", Title: "second",
+		Content: "second content about React", Project: "ri-proj", Scope: "project",
+	})
+	s.CreateSession("s-ri2", "other-proj", "/tmp")
+	s.AddObservation(store.AddObservationParams{
+		SessionID: "s-ri2", Type: "note", Title: "third",
+		Content: "third content about Python", Project: "other-proj", Scope: "project",
+	})
+
+	// List all — paginated
+	all, err := s.ListObservationsForReindex("", 0, 10)
+	if err != nil {
+		t.Fatalf("ListObservationsForReindex: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 observations, got %d", len(all))
+	}
+	// Should be ordered by ID ASC
+	if all[0].Title != "first" {
+		t.Fatalf("expected first observation ordered by ID, got %q", all[0].Title)
+	}
+
+	// Filter by project
+	projOnly, err := s.ListObservationsForReindex("ri-proj", 0, 10)
+	if err != nil {
+		t.Fatalf("ListObservationsForReindex filtered: %v", err)
+	}
+	if len(projOnly) != 2 {
+		t.Fatalf("expected 2 observations for ri-proj, got %d", len(projOnly))
+	}
+
+	// Pagination
+	page1, err := s.ListObservationsForReindex("", 0, 2)
+	if err != nil {
+		t.Fatalf("ListObservationsForReindex page1: %v", err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("expected 2 on page1, got %d", len(page1))
+	}
+	page2, err := s.ListObservationsForReindex("", 2, 2)
+	if err != nil {
+		t.Fatalf("ListObservationsForReindex page2: %v", err)
+	}
+	if len(page2) != 1 {
+		t.Fatalf("expected 1 on page2, got %d", len(page2))
+	}
+}

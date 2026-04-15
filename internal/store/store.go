@@ -984,6 +984,32 @@ func (s *Store) AllObservations(project, scope string, limit int) ([]Observation
 	return s.queryObservations(query, args...)
 }
 
+// ListObservationsForReindex returns observations ordered by ID for batch reindexing.
+// Used by the CLI graph reindex command to iterate all observations with pagination.
+func (s *Store) ListObservationsForReindex(project string, offset, limit int) ([]Observation, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		SELECT o.id, ifnull(o.sync_id, '') as sync_id, o.session_id, o.type, o.title, o.content, o.tool_name, o.project,
+		       o.scope, o.topic_key, o.revision_count, o.duplicate_count, o.revision, o.last_seen_at, o.created_at, o.updated_at, o.deleted_at
+		FROM observations o
+		WHERE o.deleted_at IS NULL
+	`
+	args := []any{}
+
+	if project != "" {
+		query += " AND o.project = ?"
+		args = append(args, project)
+	}
+
+	query += " ORDER BY o.id ASC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	return s.queryObservations(query, args...)
+}
+
 // SessionObservations returns all observations for a specific session.
 func (s *Store) SessionObservations(sessionID string, limit int) ([]Observation, error) {
 	if limit <= 0 {
