@@ -7,7 +7,7 @@ services:
       - "${MNEME_PORT:-7438}:7438"
     environment:
       MNEME_PORT: "7438"
-      MNEME_DSN: "postgres://mneme:${PG_PASSWORD:-mneme}@postgres:5432/mneme?sslmode=disable"
+      MNEME_DSN: "postgres://mneme:${PG_PASSWORD:?PG_PASSWORD is required}@postgres:5432/mneme?sslmode=disable"
       MNEME_SECRET: "${MNEME_SECRET}"
     depends_on:
       postgres:
@@ -20,7 +20,7 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: mneme
-      POSTGRES_PASSWORD: "${PG_PASSWORD:-mneme}"
+      POSTGRES_PASSWORD: "${PG_PASSWORD:?PG_PASSWORD is required}"
       POSTGRES_DB: mneme
     volumes:
       - pgdata:/var/lib/postgresql/data
