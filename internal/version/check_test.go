@@ -228,10 +228,13 @@ func withCheckServer(t *testing.T, handler http.Handler) {
 	t.Helper()
 
 	srv := httptest.NewServer(handler)
-	oldURL := githubLatestReleaseURL
-	githubLatestReleaseURL = srv.URL
+	oldReleaseURL := githubLatestReleaseURL
+	oldTagsURL := githubTagsURL
+	githubLatestReleaseURL = srv.URL + "/releases/latest"
+	githubTagsURL = srv.URL + "/tags"
 	t.Cleanup(func() {
-		githubLatestReleaseURL = oldURL
+		githubLatestReleaseURL = oldReleaseURL
+		githubTagsURL = oldTagsURL
 		srv.Close()
 	})
 }
@@ -248,4 +251,161 @@ func TestNonOKStatusMessage(t *testing.T) {
 	if got := nonOKStatusMessage(fmt.Sprintf("%d %s", http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))); !strings.Contains(got, "GH_TOKEN") {
 		t.Fatalf("message = %q", got)
 	}
+}
+
+func TestIsSemver(t *testing.T) {
+	tests := []struct {
+		in   string
+		want bool
+	}{
+		{"1.2.3", true},
+		{"0.1.0", true},
+		{"0.0.0", true},
+		{"", false},
+		{"not-a-version", false},
+		{"abc.1.2", false},
+		{"1", false},
+		{"nightly", false},
+	}
+	for _, tt := range tests {
+		if got := isSemver(tt.in); got != tt.want {
+			t.Errorf("isSemver(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestCheckLatest_FallbackToTags(t *testing.T) {
+	t.Run("404 on releases falls back to tags successfully", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		})
+		mux.HandleFunc("/tags", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"name":"v1.10.8"},{"name":"v1.10.7"},{"name":"v1.9.0"}]`))
+		})
+
+		withCheckServer(t, mux)
+
+		result := CheckLatest("1.10.7")
+		if result.Status != StatusUpdateAvailable {
+			t.Fatalf("status = %q, want %q", result.Status, StatusUpdateAvailable)
+		}
+		if !strings.Contains(result.Message, "Update available: 1.10.7 -> 1.10.8") {
+			t.Fatalf("message = %q", result.Message)
+		}
+	})
+
+	t.Run("404 on releases with tags up to date", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		})
+		mux.HandleFunc("/tags", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"name":"v1.10.7"},{"name":"v1.10.6"}]`))
+		})
+
+		withCheckServer(t, mux)
+
+		result := CheckLatest("1.10.7")
+		if result.Status != StatusUpToDate {
+			t.Fatalf("status = %q, want %q", result.Status, StatusUpToDate)
+		}
+	})
+
+	t.Run("404 on releases with no valid semver tags", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		})
+		mux.HandleFunc("/tags", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"name":"pre-release"},{"name":"random-text"}]`))
+		})
+
+		withCheckServer(t, mux)
+
+		result := CheckLatest("1.10.7")
+		if result.Status != StatusCheckFailed {
+			t.Fatalf("status = %q, want %q", result.Status, StatusCheckFailed)
+		}
+		if !strings.Contains(result.Message, "tag lookup failed") {
+			t.Fatalf("message = %q", result.Message)
+		}
+	})
+
+	t.Run("404 on releases with empty tags list", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		})
+		mux.HandleFunc("/tags", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+		})
+
+		withCheckServer(t, mux)
+
+		result := CheckLatest("1.10.7")
+		if result.Status != StatusCheckFailed {
+			t.Fatalf("status = %q, want %q", result.Status, StatusCheckFailed)
+		}
+	})
+
+	t.Run("404 on releases with tags endpoint error", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		})
+		mux.HandleFunc("/tags", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		})
+
+		withCheckServer(t, mux)
+
+		result := CheckLatest("1.10.7")
+		if result.Status != StatusCheckFailed {
+			t.Fatalf("status = %q, want %q", result.Status, StatusCheckFailed)
+		}
+	})
+
+	t.Run("403 does NOT fall back to tags", func(t *testing.T) {
+		withCheckServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "rate limited", http.StatusForbidden)
+		}))
+
+		result := CheckLatest("1.10.7")
+		if result.Status != StatusCheckFailed {
+			t.Fatalf("status = %q, want %q", result.Status, StatusCheckFailed)
+		}
+		if !strings.Contains(result.Message, "403") {
+			t.Fatalf("message = %q, should contain 403", result.Message)
+		}
+		// Must NOT mention tags fallback
+		if strings.Contains(result.Message, "tag lookup") {
+			t.Fatalf("message should NOT mention tag fallback: %q", result.Message)
+		}
+	})
+
+	t.Run("tags picks highest semver ignoring non-semver", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		})
+		mux.HandleFunc("/tags", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"name":"nightly"},{"name":"v2.0.0"},{"name":"v1.10.9"},{"name":"garbage"}]`))
+		})
+
+		withCheckServer(t, mux)
+
+		result := CheckLatest("1.10.7")
+		if result.Status != StatusUpdateAvailable {
+			t.Fatalf("status = %q, want %q", result.Status, StatusUpdateAvailable)
+		}
+		if !strings.Contains(result.Message, "2.0.0") {
+			t.Fatalf("message = %q, should pick v2.0.0 as highest", result.Message)
+		}
+	})
 }

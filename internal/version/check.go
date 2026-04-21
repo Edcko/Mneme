@@ -14,13 +14,14 @@ import (
 )
 
 const (
-	repoOwner = "Gentleman-Programming"
+	repoOwner = "Edcko"
 	repoName  = "Mneme"
 )
 
 var (
 	checkTimeout           = 2 * time.Second
 	githubLatestReleaseURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", repoOwner, repoName)
+	githubTagsURL          = fmt.Sprintf("https://api.github.com/repos/%s/%s/tags", repoOwner, repoName)
 	httpClient             = http.DefaultClient
 )
 
@@ -42,7 +43,14 @@ type githubRelease struct {
 	TagName string `json:"tag_name"`
 }
 
+// githubTag is a single tag from the GitHub tags API.
+type githubTag struct {
+	Name string `json:"name"`
+}
+
 // CheckLatest compares the running version against the latest GitHub release.
+// If the releases endpoint returns 404 (no published release), it falls back
+// to fetching tags and picking the highest semver tag.
 // It distinguishes between up-to-date, update available, and check failures.
 func CheckLatest(current string) CheckResult {
 	switch current {
@@ -73,6 +81,15 @@ func CheckLatest(current string) CheckResult {
 	}
 	defer resp.Body.Close()
 
+	// 404 means no published release — fall back to tags from the same repo.
+	if resp.StatusCode == http.StatusNotFound {
+		latest, ferr := fetchLatestFromTags()
+		if ferr != nil {
+			return checkFailed(fmt.Sprintf("Could not check for updates: no releases found and tag lookup failed (%v).", ferr))
+		}
+		return compareWithLatest(current, latest)
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return checkFailed(nonOKStatusMessage(resp.Status))
 	}
@@ -83,11 +100,16 @@ func CheckLatest(current string) CheckResult {
 	}
 
 	latest := normalizeVersion(release.TagName)
-	running := normalizeVersion(current)
-
 	if latest == "" {
 		return checkFailed("Could not check for updates: GitHub did not return a release version.")
 	}
+
+	return compareWithLatest(current, latest)
+}
+
+// compareWithLatest compares the running version against a resolved latest version.
+func compareWithLatest(current, latest string) CheckResult {
+	running := normalizeVersion(current)
 
 	if latest == running {
 		return CheckResult{Status: StatusUpToDate}
@@ -104,6 +126,63 @@ func CheckLatest(current string) CheckResult {
 			running, latest, updateInstructions(),
 		),
 	}
+}
+
+// fetchLatestFromTags queries the GitHub tags endpoint and returns the
+// highest valid semver tag name (normalized, without "v" prefix).
+func fetchLatestFromTags() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubTagsURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if token := githubToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("tags endpoint returned %s", resp.Status)
+	}
+
+	var tags []githubTag
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+		return "", fmt.Errorf("could not decode tags: %w", err)
+	}
+
+	var best string
+	for _, tag := range tags {
+		v := normalizeVersion(tag.Name)
+		if !isSemver(v) {
+			continue
+		}
+		if best == "" || isNewer(v, best) {
+			best = v
+		}
+	}
+
+	if best == "" {
+		return "", errors.New("no valid semver tags found")
+	}
+
+	return best, nil
+}
+
+// isSemver returns true if v looks like a valid semver string (e.g. "1.2.3").
+// It requires the string to start with a digit and contain at least one dot.
+func isSemver(v string) bool {
+	if v == "" || v[0] < '0' || v[0] > '9' {
+		return false
+	}
+	return strings.Contains(v, ".")
 }
 
 // normalizeVersion strips a leading "v" prefix.
