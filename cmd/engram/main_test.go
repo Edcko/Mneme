@@ -1595,6 +1595,109 @@ func TestCmdGraphCommunitiesSuggestsRebuild(t *testing.T) {
 	}
 }
 
+// ─── Graph cleanup-noise command tests ────────────────────────────────────────
+
+func TestCmdGraphCleanupNoise_Basic(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed noise + valid entities.
+	mustSeedEntity(t, cfg, "the", store.EntityTypeConcept, "", "mneme")
+	mustSeedEntity(t, cfg, "and", store.EntityTypeConcept, "", "mneme")
+	mustSeedEntity(t, cfg, "SQLite", store.EntityTypeTool, "", "mneme")
+
+	withArgs(t, "engram", "graph", "cleanup-noise", "--project", "mneme")
+	stdout, stderr := captureOutput(t, func() { cmdGraphCleanupNoise(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, `project "mneme"`) {
+		t.Fatalf("expected project filter in output, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Cleanup complete") {
+		t.Fatalf("expected cleanup complete, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Entities deleted:  2") {
+		t.Fatalf("expected 2 entities deleted, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "mneme graph rebuild") {
+		t.Fatalf("expected rebuild suggestion, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphCleanupNoise_AllProjects(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed noise concept across projects.
+	mustSeedEntity(t, cfg, "the", store.EntityTypeConcept, "", "p1")
+	mustSeedEntity(t, cfg, "and", store.EntityTypeConcept, "", "p2")
+
+	withArgs(t, "engram", "graph", "cleanup-noise")
+	stdout, stderr := captureOutput(t, func() { cmdGraphCleanupNoise(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Cleaning up noise concepts for ALL projects") {
+		t.Fatalf("expected ALL projects header, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Entities deleted:  2") {
+		t.Fatalf("expected 2 entities deleted, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphCleanupNoise_NoNoise(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Only valid entities.
+	mustSeedEntity(t, cfg, "SQLite", store.EntityTypeTool, "", "mneme")
+
+	withArgs(t, "engram", "graph", "cleanup-noise")
+	stdout, stderr := captureOutput(t, func() { cmdGraphCleanupNoise(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Entities deleted:  0") {
+		t.Fatalf("expected 0 entities deleted, got: %q", stdout)
+	}
+	// No rebuild suggestion when nothing was deleted.
+	if strings.Contains(stdout, "mneme graph rebuild") {
+		t.Fatalf("should not suggest rebuild when nothing deleted, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphCleanupNoise_RoutesViaCmdGraph(t *testing.T) {
+	cfg := testConfig(t)
+
+	withArgs(t, "engram", "graph", "cleanup-noise")
+	stdout, stderr := captureOutput(t, func() { cmdGraph(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Cleanup complete") {
+		t.Fatalf("expected cleanup output via cmdGraph, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphCleanupNoise_WithRelations(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Mneme → usa → "the" (noise)
+	mnemeID := mustSeedEntity(t, cfg, "Mneme", store.EntityTypeProject, "", "mneme")
+	theID := mustSeedEntity(t, cfg, "the", store.EntityTypeConcept, "", "mneme")
+	mustSeedRelation(t, cfg, mnemeID, theID, "usa")
+
+	withArgs(t, "engram", "graph", "cleanup-noise", "--project", "mneme")
+	stdout, stderr := captureOutput(t, func() { cmdGraphCleanupNoise(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+	if !strings.Contains(stdout, "Entities deleted:  1") {
+		t.Fatalf("expected 1 entity deleted, got: %q", stdout)
+	}
+	if !strings.Contains(stdout, "Relations deleted: 1") {
+		t.Fatalf("expected 1 relation deleted, got: %q", stdout)
+	}
+}
+
 // ─── Cloud command tests ─────────────────────────────────────────────────────
 
 func TestGenerateRandomSecret(t *testing.T) {

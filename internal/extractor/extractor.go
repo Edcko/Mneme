@@ -130,15 +130,135 @@ func (r *RuleExtractor) Extract(text string) ExtractionResult {
 	}
 }
 
-// conceptStopWords prevents common words from being extracted as concepts
-// by definition patterns like "X is a/an/the ...".
+// conceptStopWords prevents common English words from being extracted as
+// concepts. Covers articles, conjunctions, prepositions, pronouns, verbs,
+// and other high-frequency/low-information words that pollute communities.
 var conceptStopWords = map[string]bool{
-	"this": true, "that": true, "these": true, "those": true,
-	"there": true, "here": true, "when": true, "where": true,
-	"which": true, "what": true, "who": true, "how": true,
-	"why": true, "every": true, "some": true, "any": true,
-	"each": true, "both": true, "another": true, "other": true,
-	"such": true, "same": true, "the": true,
+	// Articles
+	"a": true, "an": true, "the": true,
+	// Conjunctions
+	"and": true, "but": true, "or": true, "nor": true, "so": true, "yet": true,
+	// Prepositions
+	"for": true, "to": true, "of": true, "in": true, "on": true, "at": true,
+	"by": true, "with": true, "from": true, "as": true, "into": true,
+	"through": true, "during": true, "before": true, "after": true,
+	"above": true, "below": true, "between": true, "under": true,
+	"over": true, "up": true, "down": true, "out": true, "off": true,
+	"about": true, "against": true, "without": true, "within": true,
+	"along": true, "across": true, "behind": true, "beyond": true,
+	// Pronouns
+	"it": true, "its": true, "he": true, "him": true, "his": true,
+	"she": true, "her": true, "we": true, "us": true, "our": true,
+	"they": true, "them": true, "their": true, "you": true, "your": true,
+	"my": true, "me": true, "this": true, "that": true, "these": true,
+	"those": true, "who": true, "whom": true, "which": true, "what": true,
+	// Common verbs (auxiliary / high-frequency)
+	"is": true, "are": true, "was": true, "were": true, "be": true,
+	"been": true, "being": true, "have": true, "has": true, "had": true,
+	"do": true, "does": true, "did": true, "will": true, "would": true,
+	"could": true, "should": true, "may": true, "might": true, "can": true,
+	"shall": true, "must": true,
+	// Adverbs / temporal
+	"not": true, "no": true, "now": true, "then": true, "than": true,
+	"too": true, "very": true, "just": true, "also": true, "only": true,
+	"here": true, "there": true, "when": true, "where": true, "why": true,
+	"how": true, "once": true, "still": true, "even": true, "well": true,
+	// Determiners / quantifiers
+	"every": true, "some": true, "any": true, "each": true, "both": true,
+	"another": true, "other": true, "such": true, "same": true,
+	"all": true, "most": true, "more": true, "much": true, "many": true,
+	"few": true, "own": true,
+	// Generic low-value terms — vague/common words that pollute communities
+	// when extracted as isolated concept tokens by regex or backfill.
+	// Excludes terms that are also gazetteer entries (e.g. "Make", "Go", "R").
+	"start": true, "result": true, "step": true,
+	"package": true, "project": true,
+	"thing": true, "example": true, "point": true,
+	"way": true, "end": true, "work": true, "back": true,
+	"use": true, "need": true, "try": true,
+	"set": true, "get": true, "run": true, "add": true, "put": true,
+	"new": true, "old": true,
+	"first": true, "next": true, "last": true,
+}
+
+// IsNoiseConcept reports whether name is too generic or low-value to be
+// stored as a concept entity. Used by the extractor AND by MCP backfill
+// to keep the graph clean.
+//
+// Checks: empty, pure punctuation/symbols, exact stopword match.
+// Does NOT reject short names like "Go", "R", "C#" — those are legitimate
+// gazetteer entities that appear in relation endpoints.
+//
+// Exported because graph_tools.go needs it for relation-endpoint filtering.
+func IsNoiseConcept(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+
+	// Empty or whitespace-only.
+	if lower == "" {
+		return true
+	}
+
+	// Pure punctuation / symbols (e.g. "-", "_", "--", "==", "+").
+	allPunct := true
+	for _, r := range lower {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			allPunct = false
+			break
+		}
+	}
+	if allPunct {
+		return true
+	}
+
+	// Pure numeric tokens (e.g. "5", "7", "42") — never useful as concepts.
+	if isPureDigits(lower) {
+		return true
+	}
+
+	// CLI flags/options (e.g. "-V", "-h", "--verbose", "--foo").
+	if strings.HasPrefix(name, "-") {
+		return true
+	}
+
+	// Single placeholder letters (x, y, z) — math/code variable placeholders.
+	// Does NOT filter legitimate short entities like "Go", "R", "C".
+	if len(lower) == 1 && (lower == "x" || lower == "y" || lower == "z") {
+		return true
+	}
+
+	// Exact stopword match.
+	if conceptStopWords[lower] {
+		return true
+	}
+
+	return false
+}
+
+// isNoiseConceptStrict adds a short-token guard on top of IsNoiseConcept.
+// Used only inside regex concept extraction — single-char or two-char
+// tokens from backticks or definition patterns are almost never useful
+// concepts (exceptions like "Go" are handled by the gazetteer layer).
+func isNoiseConceptStrict(name string) bool {
+	if IsNoiseConcept(name) {
+		return true
+	}
+	if len(strings.TrimSpace(name)) < 3 {
+		return true
+	}
+	return false
+}
+
+// isPureDigits reports whether s consists entirely of ASCII digits.
+func isPureDigits(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *RuleExtractor) extractEntities(text string) []ExtractedEntity {
@@ -172,12 +292,9 @@ func (r *RuleExtractor) extractEntities(text string) []ExtractedEntity {
 					continue
 				}
 
-				// Filter: concept stop words and single lowercase words from backticks.
+				// Filter: noise concepts (stopwords, punctuation, short tokens).
 				if p.entityType == EntityTypeConcept {
-					if conceptStopWords[strings.ToLower(name)] {
-						continue
-					}
-					if len(name) <= 2 {
+					if isNoiseConceptStrict(name) {
 						continue
 					}
 				}

@@ -631,3 +631,157 @@ func TestListObservationsForReindex(t *testing.T) {
 		t.Fatalf("expected 1 on page2, got %d", len(page2))
 	}
 }
+
+// ─── Noise Cleanup Tests ─────────────────────────────────────────────────────
+
+func TestCleanupNoiseConcepts_Basic(t *testing.T) {
+	s := newGraphStore(t)
+
+	// Seed: noise concepts + valid concepts + non-concept entities.
+	s.UpsertEntity("the", store.EntityTypeConcept, "", "mneme")    // stopword → noise
+	s.UpsertEntity("and", store.EntityTypeConcept, "", "mneme")    // stopword → noise
+	s.UpsertEntity("result", store.EntityTypeConcept, "", "mneme") // generic → noise
+	s.UpsertEntity("run", store.EntityTypeConcept, "", "mneme")    // generic → noise
+	s.UpsertEntity("SQLite", store.EntityTypeTool, "", "mneme")    // tool → keep
+	s.UpsertEntity("Go", store.EntityTypeLanguage, "", "mneme")    // language → keep
+	s.UpsertEntity("CQRS", store.EntityTypeConcept, "", "mneme")   // gazetteer concept → keep
+
+	result, err := s.CleanupNoiseConcepts("")
+	if err != nil {
+		t.Fatalf("CleanupNoiseConcepts: %v", err)
+	}
+
+	if result.EntitiesDeleted != 4 {
+		t.Errorf("expected 4 entities deleted (the, and, result, run), got %d", result.EntitiesDeleted)
+	}
+
+	// Verify remaining entities are the valid ones.
+	entities, _ := s.ListEntities("", "mneme", 20)
+	if len(entities) != 3 {
+		t.Errorf("expected 3 remaining entities (SQLite, Go, CQRS), got %d", len(entities))
+		for _, e := range entities {
+			t.Logf("  remaining: %s (%s)", e.Name, e.EntityType)
+		}
+	}
+}
+
+func TestCleanupNoiseConcepts_WithRelations(t *testing.T) {
+	s := newGraphStore(t)
+
+	// Mneme → usa → the (noise target)
+	// Mneme → usa → SQLite (valid target)
+	mneme, _ := s.UpsertEntity("Mneme", store.EntityTypeProject, "", "mneme")
+	theID, _ := s.UpsertEntity("the", store.EntityTypeConcept, "", "mneme")
+	sqliteID, _ := s.UpsertEntity("SQLite", store.EntityTypeTool, "", "mneme")
+
+	s.AddRelation(mneme, theID, "usa", nil)
+	s.AddRelation(mneme, sqliteID, "usa", nil)
+
+	result, err := s.CleanupNoiseConcepts("")
+	if err != nil {
+		t.Fatalf("CleanupNoiseConcepts: %v", err)
+	}
+
+	if result.EntitiesDeleted != 1 {
+		t.Errorf("expected 1 entity deleted, got %d", result.EntitiesDeleted)
+	}
+	if result.RelationsDeleted != 1 {
+		t.Errorf("expected 1 relation deleted (Mneme→the), got %d", result.RelationsDeleted)
+	}
+
+	// Mneme→SQLite relation must survive.
+	rels, _ := s.GetEntityRelations(mneme, true)
+	if len(rels) != 1 || rels[0].TargetID != sqliteID {
+		t.Errorf("expected Mneme→SQLite relation to survive, got %d relations", len(rels))
+	}
+}
+
+func TestCleanupNoiseConcepts_ProjectFilter(t *testing.T) {
+	s := newGraphStore(t)
+
+	// "the" in project A → should be deleted
+	s.UpsertEntity("the", store.EntityTypeConcept, "", "proj-a")
+	// "the" in project B → should survive when filtering by proj-a
+	s.UpsertEntity("the", store.EntityTypeConcept, "", "proj-b")
+
+	result, err := s.CleanupNoiseConcepts("proj-a")
+	if err != nil {
+		t.Fatalf("CleanupNoiseConcepts: %v", err)
+	}
+
+	if result.EntitiesDeleted != 1 {
+		t.Errorf("expected 1 entity deleted (proj-a only), got %d", result.EntitiesDeleted)
+	}
+
+	// proj-b "the" must still exist.
+	entities, _ := s.ListEntities(string(store.EntityTypeConcept), "proj-b", 10)
+	if len(entities) != 1 {
+		t.Errorf("expected proj-b 'the' to survive, got %d entities", len(entities))
+	}
+}
+
+func TestCleanupNoiseConcepts_NoNoise(t *testing.T) {
+	s := newGraphStore(t)
+
+	s.UpsertEntity("SQLite", store.EntityTypeTool, "", "mneme")
+	s.UpsertEntity("Go", store.EntityTypeLanguage, "", "mneme")
+
+	result, err := s.CleanupNoiseConcepts("")
+	if err != nil {
+		t.Fatalf("CleanupNoiseConcepts: %v", err)
+	}
+
+	if result.EntitiesDeleted != 0 {
+		t.Errorf("expected 0 entities deleted, got %d", result.EntitiesDeleted)
+	}
+	if result.RelationsDeleted != 0 {
+		t.Errorf("expected 0 relations deleted, got %d", result.RelationsDeleted)
+	}
+}
+
+func TestCleanupNoiseConcepts_OnlyConceptsAffected(t *testing.T) {
+	s := newGraphStore(t)
+
+	// "the" as a tool entity (NOT concept) → should survive.
+	s.UpsertEntity("the", store.EntityTypeTool, "", "mneme")
+
+	result, err := s.CleanupNoiseConcepts("")
+	if err != nil {
+		t.Fatalf("CleanupNoiseConcepts: %v", err)
+	}
+
+	if result.EntitiesDeleted != 0 {
+		t.Errorf("expected 0 entities deleted (tool 'the' is not a concept), got %d", result.EntitiesDeleted)
+	}
+}
+
+func TestCleanupNoiseConcepts_CommunityMembersCleaned(t *testing.T) {
+	s := newGraphStore(t)
+
+	// Create a cluster where one entity is noise.
+	mneme, _ := s.UpsertEntity("Mneme", store.EntityTypeProject, "", "mneme")
+	theID, _ := s.UpsertEntity("the", store.EntityTypeConcept, "", "mneme")
+	sqliteID, _ := s.UpsertEntity("SQLite", store.EntityTypeTool, "", "mneme")
+
+	s.AddRelation(mneme, theID, "usa", nil)
+	s.AddRelation(mneme, sqliteID, "usa", nil)
+
+	// Build communities first.
+	s.RebuildCommunities("mneme")
+
+	// Cleanup noise.
+	result, err := s.CleanupNoiseConcepts("")
+	if err != nil {
+		t.Fatalf("CleanupNoiseConcepts: %v", err)
+	}
+
+	if result.EntitiesDeleted != 1 {
+		t.Errorf("expected 1 entity deleted, got %d", result.EntitiesDeleted)
+	}
+
+	// Communities still exist (Mneme + SQLite still connected).
+	communities, _ := s.GetCommunities("mneme", 10)
+	if len(communities) == 0 {
+		t.Error("expected communities to survive after cleanup")
+	}
+}

@@ -502,11 +502,19 @@ func IndexObservationEntities(s *store.Store, obsID int64, content, project stri
 	// Regex rules capture raw text tokens (e.g. "API", "Backend") that may not
 	// be gazetteer entities.  Without backfill, every such relation is silently
 	// dropped, which is why reindex produced 0 relations on real data.
+	//
+	// Filter: skip endpoints that are noise (stopwords, punctuation, very short)
+	// to avoid polluting the graph with concepts like "and", "the", "for", "-".
 	var obsIDPtr *int64
 	if obsID > 0 {
 		obsIDPtr = &obsID
 	}
 	for _, r := range result.Relations {
+		// Skip relations with noise endpoints.
+		if extractor.IsNoiseConcept(r.SourceName) || extractor.IsNoiseConcept(r.TargetName) {
+			continue
+		}
+
 		srcID, srcOK := entityIDs[strings.ToLower(r.SourceName)]
 		tgtID, tgtOK := entityIDs[strings.ToLower(r.TargetName)]
 		if !srcOK {

@@ -126,6 +126,10 @@ var (
 		return s.RebuildCommunities(project)
 	}
 
+	graphCleanupNoise = func(s *store.Store, project string) (*store.CleanupResult, error) {
+		return s.CleanupNoiseConcepts(project)
+	}
+
 	// Graph reindex operations — injectable for testing.
 	graphIndexObsEntities  = mcp.IndexObservationEntities
 	graphListObsForReindex = func(s *store.Store, project string, offset, limit int) ([]store.Observation, error) {
@@ -1319,6 +1323,8 @@ func cmdGraph(cfg store.Config) {
 		cmdGraphReindex(cfg)
 	case "rebuild":
 		cmdGraphRebuild(cfg)
+	case "cleanup-noise":
+		cmdGraphCleanupNoise(cfg)
 	case "help", "--help", "-h":
 		fmt.Fprint(os.Stderr, graphUsage)
 	default:
@@ -1341,8 +1347,10 @@ const graphUsage = `Usage:
                       List communities (clusters of connected entities)
   mneme graph reindex [--project PROJECT]
                       Reindex all observations to extract entities and relations
-  mneme graph rebuild [--project PROJECT]
-                      Rebuild communities from current entities and relations
+   mneme graph rebuild [--project PROJECT]
+                       Rebuild communities from current entities and relations
+   mneme graph cleanup-noise [--project PROJECT]
+                       Remove noise concepts (stopwords, punctuation, etc.) and their relations
 
 Options:
   --type TYPE       Filter by entity type (person, project, file, tool, concept, language)
@@ -1797,6 +1805,47 @@ func cmdGraphRebuild(cfg store.Config) {
 	fmt.Printf("  Communities: %d\n", count)
 }
 
+func cmdGraphCleanupNoise(cfg store.Config) {
+	project := ""
+
+	for i := 3; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--project":
+			if i+1 < len(os.Args) {
+				project = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
+	s, err := storeNew(cfg)
+	if err != nil {
+		fatal(err)
+	}
+	defer s.Close()
+
+	if project != "" {
+		fmt.Printf("Cleaning up noise concepts for project %q...\n", project)
+	} else {
+		fmt.Println("Cleaning up noise concepts for ALL projects...")
+	}
+
+	result, err := graphCleanupNoise(s, project)
+	if err != nil {
+		fatal(err)
+	}
+
+	fmt.Println()
+	fmt.Println("Cleanup complete:")
+	fmt.Printf("  Entities deleted:  %d\n", result.EntitiesDeleted)
+	fmt.Printf("  Relations deleted: %d\n", result.RelationsDeleted)
+
+	if result.EntitiesDeleted > 0 {
+		fmt.Println()
+		fmt.Println("Run 'mneme graph rebuild' to recompute communities without noise.")
+	}
+}
+
 func cmdSetup() {
 	agents := setupSupportedAgents()
 
@@ -2032,6 +2081,7 @@ Commands:
   graph communities  List communities (clusters of connected entities) [--project PROJECT]
    graph reindex      Reindex all observations to extract entities/relations [--project PROJECT]
    graph rebuild      Rebuild communities from current entities/relations [--project PROJECT]
+   graph cleanup-noise Remove noise concepts and their relations [--project PROJECT]
      setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
    sync               Export new memories as compressed chunk to .engram/
                         --import   Import new chunks from .engram/ into local DB

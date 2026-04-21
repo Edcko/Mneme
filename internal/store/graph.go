@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Edcko/Mneme/internal/extractor"
 	"github.com/Edcko/Mneme/internal/vector"
 )
 
@@ -983,6 +984,120 @@ func (s *Store) communityMembers(communityID int64) ([]Entity, error) {
 		members = append(members, *e)
 	}
 	return members, rows.Err()
+}
+
+// ─── Noise Cleanup ─────────────────────────────────────────────────────────────
+
+// CleanupResult holds counts of deleted entities, relations, and communities.
+type CleanupResult struct {
+	EntitiesDeleted  int `json:"entities_deleted"`
+	RelationsDeleted int `json:"relations_deleted"`
+}
+
+// CleanupNoiseConcepts finds all concept entities whose name matches
+// extractor.IsNoiseConcept and deletes them along with every relation
+// connected to them. Community membership rows are cleaned via cascade
+// (orphaned community members).
+//
+// If project is non-empty, only concepts in that project are cleaned.
+// Returns the number of entities and relations deleted.
+func (s *Store) CleanupNoiseConcepts(project string) (*CleanupResult, error) {
+	tx, err := s.beginTxHook()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// 1. Find noise concept entity IDs.
+	projectFilter := ""
+	args := []any{string(EntityTypeConcept)}
+	if project != "" {
+		projectFilter = " AND ifnull(project, '') = ?"
+		args = append(args, project)
+	}
+
+	rows, err := tx.Query(`
+		SELECT id, name FROM entities
+		WHERE entity_type = ?`+projectFilter, args...)
+	if err != nil {
+		return nil, fmt.Errorf("cleanup: find noise concepts: %w", err)
+	}
+
+	var noiseIDs []int64
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("cleanup: scan entity: %w", err)
+		}
+		if extractor.IsNoiseConcept(name) {
+			noiseIDs = append(noiseIDs, id)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cleanup: iterate entities: %w", err)
+	}
+
+	if len(noiseIDs) == 0 {
+		if err := s.commitHook(tx); err != nil {
+			return nil, err
+		}
+		return &CleanupResult{}, nil
+	}
+
+	// 2. Delete relations where source or target is a noise entity.
+	placeholders := strings.Repeat("?,", len(noiseIDs))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	relArgs := make([]any, 0, len(noiseIDs)*2)
+	for _, id := range noiseIDs {
+		relArgs = append(relArgs, id)
+	}
+	for _, id := range noiseIDs {
+		relArgs = append(relArgs, id)
+	}
+
+	relRes, err := tx.Exec(`
+		DELETE FROM relations
+		WHERE source_id IN (`+placeholders+`)
+		   OR target_id IN (`+placeholders+`)
+	`, relArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("cleanup: delete relations: %w", err)
+	}
+	relationsDeleted, _ := relRes.RowsAffected()
+
+	// 3. Delete community_members pointing to noise entities.
+	entArgs := make([]any, len(noiseIDs))
+	for i, id := range noiseIDs {
+		entArgs[i] = id
+	}
+	if _, err := tx.Exec(`
+		DELETE FROM community_members
+		WHERE entity_id IN (`+placeholders+`)
+	`, entArgs...); err != nil {
+		return nil, fmt.Errorf("cleanup: delete community_members: %w", err)
+	}
+
+	// 4. Delete the noise entities themselves (FTS trigger keeps index in sync).
+	entRes, err := tx.Exec(`
+		DELETE FROM entities WHERE id IN (`+placeholders+`)
+	`, entArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("cleanup: delete entities: %w", err)
+	}
+	entitiesDeleted, _ := entRes.RowsAffected()
+
+	if err := s.commitHook(tx); err != nil {
+		return nil, err
+	}
+
+	return &CleanupResult{
+		EntitiesDeleted:  int(entitiesDeleted),
+		RelationsDeleted: int(relationsDeleted),
+	}, nil
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

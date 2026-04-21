@@ -1,6 +1,7 @@
 package extractor_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1320,6 +1321,350 @@ func TestBugFix_GazetteerCaseInsensitive(t *testing.T) {
 			result := ex.Extract(tc.text)
 			if !hasEntity(result.Entities, tc.entity, tc.et) {
 				t.Errorf("expected entity %q from %q, got: %v", tc.entity, tc.text, entityNames(result.Entities))
+			}
+		})
+	}
+}
+
+// ─── Noise Concept Filtering ──────────────────────────────────────────────
+
+func TestIsNoiseConcept_StopWords(t *testing.T) {
+	// Every word from the user's bug report must be classified as noise.
+	badWords := []string{
+		"and", "the", "it", "for", "now",
+		"but", "or", "is", "are", "was", "were",
+		"to", "of", "in", "on", "at", "by", "with", "from",
+		"this", "that", "these", "those", "there", "here",
+		"have", "has", "had", "do", "does", "did",
+		"will", "would", "could", "should", "can",
+		"not", "no", "then", "than", "too", "very", "just",
+		"all", "some", "any", "each", "both",
+	}
+	for _, w := range badWords {
+		t.Run(w, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(w) {
+				t.Errorf("expected %q to be noise", w)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_PunctuationAndSymbols(t *testing.T) {
+	badTokens := []string{"-", "_", "--", "==", "+", "++", "---", ".."}
+	for _, tok := range badTokens {
+		t.Run(tok, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(tok) {
+				t.Errorf("expected %q to be noise", tok)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_ShortTokens(t *testing.T) {
+	// Short tokens that are NOT stopwords should pass — they might be legitimate
+	// gazetteer entities like "Go" or "R" appearing in relation endpoints.
+	legitShort := []string{"Go", "R", "Go"}
+	for _, tok := range legitShort {
+		t.Run(tok, func(t *testing.T) {
+			if extractor.IsNoiseConcept(tok) {
+				t.Errorf("short token %q should NOT be noise for backfill (legitimate entity names)", tok)
+			}
+		})
+	}
+
+	// But short stopwords ARE noise — caught by stopword list, not length.
+	stopShort := []string{"of", "to", "in", "on", "at", "it", "an"}
+	for _, tok := range stopShort {
+		t.Run(tok+"_stopword", func(t *testing.T) {
+			if !extractor.IsNoiseConcept(tok) {
+				t.Errorf("short stopword %q should be noise", tok)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_RealConceptsPass(t *testing.T) {
+	// Actual domain concepts must NOT be classified as noise.
+	goodConcepts := []string{
+		"microservices", "event sourcing", "CQRS", "circuit breaker",
+		"repository", "idempotency", "concurrency", "encapsulation",
+		"rate limiting", "deadlock", "SOLID", "DRY", "TDD",
+		"React", "Docker", "PostgreSQL", "SQLite", "Kubernetes",
+		"API", "JWT", "REST", "gRPC",
+		"UserService", "BaseService", "AuthService",
+	}
+	for _, c := range goodConcepts {
+		t.Run(c, func(t *testing.T) {
+			if extractor.IsNoiseConcept(c) {
+				t.Errorf("real concept %q should NOT be noise", c)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_CaseInsensitive(t *testing.T) {
+	// "And", "AND", "and" should all be noise.
+	upper := []string{"And", "AND", "The", "THE", "For", "FOR", "Now", "NOW"}
+	for _, w := range upper {
+		t.Run(w, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(w) {
+				t.Errorf("expected %q (case-variant of stopword) to be noise", w)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_EmptyAndWhitespace(t *testing.T) {
+	empty := []string{"", " ", "  ", "\t", "\n"}
+	for _, tok := range empty {
+		t.Run(fmt.Sprintf("empty_%d", len(tok)), func(t *testing.T) {
+			if !extractor.IsNoiseConcept(tok) {
+				t.Errorf("expected %q to be noise", tok)
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_BacktickGarbage(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// These backtick-enclosed stopwords should NOT become concepts.
+	garbage := []string{"and", "the", "it", "for", "now", "is", "are", "was"}
+	for _, g := range garbage {
+		text := fmt.Sprintf("The system uses `%s` for processing", g)
+		t.Run(g, func(t *testing.T) {
+			result := ex.Extract(text)
+			for _, e := range result.Entities {
+				if e.EntityType == extractor.EntityTypeConcept && strings.EqualFold(e.Name, g) {
+					t.Errorf("backtick stopword %q should not be a concept, got: %v", g, e)
+				}
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_DefinitionPatternGarbage(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "And is a ..." — "And" should be filtered.
+	garbage := []string{"And", "But", "Or", "For", "Now"}
+	for _, g := range garbage {
+		text := fmt.Sprintf("%s is a critical component of the system", g)
+		t.Run(g, func(t *testing.T) {
+			result := ex.Extract(text)
+			for _, e := range result.Entities {
+				if e.EntityType == extractor.EntityTypeConcept && strings.EqualFold(e.Name, g) {
+					t.Errorf("definition-pattern stopword %q should not be a concept", g)
+				}
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_SuffixPatternGarbage(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "The pattern" — "The" should not become a concept via suffix pattern.
+	result := ex.Extract("Implemented the pattern for transactions")
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypeConcept && strings.EqualFold(e.Name, "The") {
+			t.Error("'The' should not become a concept via suffix pattern")
+		}
+	}
+}
+
+func TestNoiseConcept_BacktickRealConceptsStillWork(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Regression: real backtick concepts must still work after stopword expansion.
+	concepts := []string{"event sourcing", "CQRS", "idempotency", "circuit breaker"}
+	for _, c := range concepts {
+		text := fmt.Sprintf("Using `%s` for state management", c)
+		t.Run(c, func(t *testing.T) {
+			result := ex.Extract(text)
+			if !hasEntity(result.Entities, c, extractor.EntityTypeConcept) {
+				t.Errorf("real concept %q should still be extracted, got: %v", c, entityNames(result.Entities))
+			}
+		})
+	}
+}
+
+// ─── Fine-Grained Semantic Noise Filtering ──────────────────────────────────
+
+func TestIsNoiseConcept_PureNumbers(t *testing.T) {
+	numbers := []string{"5", "7", "42", "0", "100", "3"}
+	for _, n := range numbers {
+		t.Run(n, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(n) {
+				t.Errorf("expected pure number %q to be noise", n)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_CLIFlags(t *testing.T) {
+	flags := []string{"-V", "-h", "--verbose", "--foo", "-v", "--version", "--help"}
+	for _, f := range flags {
+		t.Run(f, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(f) {
+				t.Errorf("expected CLI flag %q to be noise", f)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_PlaceholderLetters(t *testing.T) {
+	placeholders := []string{"X", "Y", "Z", "x", "y", "z"}
+	for _, p := range placeholders {
+		t.Run(p, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(p) {
+				t.Errorf("expected placeholder letter %q to be noise", p)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_GenericLowValueTerms(t *testing.T) {
+	// Terms reported by user in real graph data.
+	genericTerms := []string{
+		"start", "result", "step", "package", "project",
+		"Start", "RESULT", "Step", "Package", "PROJECT",
+	}
+	for _, term := range genericTerms {
+		t.Run(term, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(term) {
+				t.Errorf("expected generic term %q to be noise", term)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_ExtendedGenericTerms(t *testing.T) {
+	// Extended set of generic low-value terms that should not be concepts.
+	genericTerms := []string{
+		"thing", "example", "point", "way", "end", "work", "back",
+		"use", "need", "try", "set", "get", "run", "add", "put",
+		"new", "old", "first", "next", "last",
+	}
+	for _, term := range genericTerms {
+		t.Run(term, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(term) {
+				t.Errorf("expected generic term %q to be noise", term)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_RealEntitiesStillPass(t *testing.T) {
+	// Critical: legitimate short and medium-length entities must NOT be filtered.
+	realEntities := []string{
+		// Short gazetteer entities
+		"Go", "R",
+		// Acronyms and abbreviations
+		"JWT", "API", "SQL", "REST", "gRPC",
+		// Tools/languages (capitalized)
+		"React", "Docker", "SQLite", "Redis", "Kubernetes",
+		// Concepts
+		"CQRS", "SOLID", "TDD", "BDD",
+		// Multi-word concepts
+		"event sourcing", "circuit breaker", "rate limiting",
+		// Relation endpoint tokens (uppercase)
+		"Auth", "Backend", "Service", "Module",
+		// Languages with symbols
+		"C#", "F#",
+	}
+	for _, e := range realEntities {
+		t.Run(e, func(t *testing.T) {
+			if extractor.IsNoiseConcept(e) {
+				t.Errorf("real entity %q should NOT be noise", e)
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_NumbersFromRelations(t *testing.T) {
+	// Relation regex captures "5" and "7" as endpoints.
+	// IsNoiseConcept must flag them so the backfill layer in graph_tools
+	// skips creating noise concept entities for them.
+	ex := extractor.NewRuleExtractor()
+
+	result := ex.Extract("5 depends on 7")
+	// The extractor DOES extract the relation — noise filtering is the caller's job.
+	found := false
+	for _, r := range result.Relations {
+		if r.Relation == "depende_de" && r.SourceName == "5" && r.TargetName == "7" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected depende_de(5, 7) to be extracted (filtering is caller's job)")
+	}
+
+	// But IsNoiseConcept correctly flags both endpoints as noise.
+	if !extractor.IsNoiseConcept("5") {
+		t.Error("IsNoiseConcept should flag '5' as noise")
+	}
+	if !extractor.IsNoiseConcept("7") {
+		t.Error("IsNoiseConcept should flag '7' as noise")
+	}
+}
+
+func TestNoiseConcept_PlaceholdersFromRelations(t *testing.T) {
+	// Relation regex captures "X" and "Y" as endpoints.
+	// IsNoiseConcept must flag them so the backfill layer skips them.
+	ex := extractor.NewRuleExtractor()
+
+	result := ex.Extract("Decided to use X instead of Y")
+	found := false
+	for _, r := range result.Relations {
+		if r.Relation == "reemplaza_a" && r.SourceName == "X" && r.TargetName == "Y" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected reemplaza_a(X, Y) to be extracted (filtering is caller's job)")
+	}
+
+	// But IsNoiseConcept correctly flags both as noise.
+	if !extractor.IsNoiseConcept("X") {
+		t.Error("IsNoiseConcept should flag 'X' as noise")
+	}
+	if !extractor.IsNoiseConcept("Y") {
+		t.Error("IsNoiseConcept should flag 'Y' as noise")
+	}
+}
+
+func TestNoiseConcept_GenericBacktickConcepts(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Generic terms in backticks should NOT become concepts.
+	generic := []string{"start", "result", "step", "package", "project", "new", "old"}
+	for _, g := range generic {
+		text := fmt.Sprintf("Using `%s` in the pipeline", g)
+		t.Run(g, func(t *testing.T) {
+			result := ex.Extract(text)
+			for _, e := range result.Entities {
+				if e.EntityType == extractor.EntityTypeConcept && strings.EqualFold(e.Name, g) {
+					t.Errorf("generic term %q in backticks should not be a concept", g)
+				}
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_GenericDefinitionPatterns(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Generic terms via "X is a ..." pattern should NOT become concepts.
+	generic := []string{"Start", "Result", "Step", "Package", "Project"}
+	for _, g := range generic {
+		text := fmt.Sprintf("%s is a critical component of the system", g)
+		t.Run(g, func(t *testing.T) {
+			result := ex.Extract(text)
+			for _, e := range result.Entities {
+				if e.EntityType == extractor.EntityTypeConcept && strings.EqualFold(e.Name, g) {
+					t.Errorf("generic term %q via definition pattern should not be a concept", g)
+				}
 			}
 		})
 	}
