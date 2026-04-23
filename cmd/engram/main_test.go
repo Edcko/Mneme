@@ -1539,6 +1539,145 @@ func TestCmdGraphRebuildNoProject(t *testing.T) {
 	}
 }
 
+func TestCmdGraphEntitiesSortedByTypeThenName(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Seed entities in random order.
+	mustSeedEntity(t, cfg, "React", store.EntityTypeTool, "UI library", "webapp")
+	mustSeedEntity(t, cfg, "Alice", store.EntityTypePerson, "Lead developer", "webapp")
+	mustSeedEntity(t, cfg, "Go", store.EntityTypeLanguage, "Backend language", "server")
+	mustSeedEntity(t, cfg, "TypeScript", store.EntityTypeLanguage, "Typed JS", "webapp")
+	mustSeedEntity(t, cfg, "Angular", store.EntityTypeTool, "Framework", "webapp")
+
+	withArgs(t, "engram", "graph", "entities")
+	stdout, stderr := captureOutput(t, func() { cmdGraphEntities(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+
+	// Verify sort order: concept < language < person < tool (alphabetical types)
+	// Go and TypeScript are languages (come first), then Alice (person), then Angular and React (tools).
+	goIdx := strings.Index(stdout, "Go")
+	tsIdx := strings.Index(stdout, "TypeScript")
+	aliceIdx := strings.Index(stdout, "Alice")
+	angularIdx := strings.Index(stdout, "Angular")
+	reactIdx := strings.Index(stdout, "React")
+
+	if goIdx >= tsIdx {
+		t.Fatal("Go should appear before TypeScript (same type=language, Go < TypeScript)")
+	}
+	if tsIdx >= aliceIdx {
+		t.Fatal("TypeScript (language) should appear before Alice (person)")
+	}
+	if aliceIdx >= angularIdx {
+		t.Fatal("Alice (person) should appear before Angular (tool)")
+	}
+	if angularIdx >= reactIdx {
+		t.Fatal("Angular should appear before React (same type=tool, Angular < React)")
+	}
+
+	// Verify column header
+	if !strings.Contains(stdout, "TYPE") || !strings.Contains(stdout, "NAME") || !strings.Contains(stdout, "SUMMARY") {
+		t.Fatalf("expected column headers, got: %q", stdout)
+	}
+
+	// Verify type distribution summary
+	if !strings.Contains(stdout, "By type:") {
+		t.Fatalf("expected type distribution summary, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphEntitiesEmptySuggestsReindex(t *testing.T) {
+	cfg := testConfig(t)
+
+	withArgs(t, "engram", "graph", "entities")
+	stdout, _ := captureOutput(t, func() { cmdGraphEntities(cfg) })
+	if !strings.Contains(stdout, "mneme graph reindex") {
+		t.Fatalf("empty entities should suggest reindex, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphCommunitiesSortedByMemberCount(t *testing.T) {
+	cfg := testConfig(t)
+
+	// Build two disconnected clusters of different sizes.
+	a1 := mustSeedEntity(t, cfg, "A1", store.EntityTypeConcept, "", "proj")
+	a2 := mustSeedEntity(t, cfg, "A2", store.EntityTypeConcept, "", "proj")
+	a3 := mustSeedEntity(t, cfg, "A3", store.EntityTypeConcept, "", "proj")
+	mustSeedRelation(t, cfg, a1, a2, "related_to")
+	mustSeedRelation(t, cfg, a2, a3, "related_to")
+
+	b1 := mustSeedEntity(t, cfg, "B1", store.EntityTypeConcept, "", "proj")
+	b2 := mustSeedEntity(t, cfg, "B2", store.EntityTypeConcept, "", "proj")
+	mustSeedRelation(t, cfg, b1, b2, "related_to")
+
+	s, err := store.New(cfg)
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	if err := s.RebuildCommunities("proj"); err != nil {
+		t.Fatalf("RebuildCommunities: %v", err)
+	}
+	s.Close()
+
+	withArgs(t, "engram", "graph", "communities", "--project", "proj")
+	stdout, stderr := captureOutput(t, func() { cmdGraphCommunities(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+
+	// The bigger community (3 members) should appear first.
+	threeIdx := strings.Index(stdout, "3 member")
+	twoIdx := strings.Index(stdout, "2 member")
+	if threeIdx == -1 || twoIdx == -1 {
+		t.Fatalf("expected both communities, got: %q", stdout)
+	}
+	if threeIdx > twoIdx {
+		t.Fatalf("larger community (3 members) should appear first, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphSearchSortedByTypeThenName(t *testing.T) {
+	cfg := testConfig(t)
+
+	mustSeedEntity(t, cfg, "React", store.EntityTypeTool, "UI library", "webapp")
+	mustSeedEntity(t, cfg, "React Router", store.EntityTypeConcept, "Routing", "webapp")
+
+	withArgs(t, "engram", "graph", "search", "React")
+	stdout, stderr := captureOutput(t, func() { cmdGraphSearch(cfg) })
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got: %q", stderr)
+	}
+
+	// concept < tool, so React Router should appear before React.
+	// Search by entity ID + name to avoid substring matching issues.
+	rrIdx := strings.Index(stdout, "React Router")
+	rIdx := strings.Index(stdout, "React                          ") // padded to avoid matching "React Router"
+	if rrIdx == -1 || rIdx == -1 {
+		t.Fatalf("expected both entities in output, got: %q", stdout)
+	}
+	if rrIdx >= rIdx {
+		t.Fatalf("React Router (concept) should appear before React (tool), got: %q", stdout)
+	}
+
+	// Verify column header present
+	if !strings.Contains(stdout, "TYPE") || !strings.Contains(stdout, "NAME") {
+		t.Fatalf("expected column headers in search, got: %q", stdout)
+	}
+}
+
+func TestCmdGraphHelpIncludesExamples(t *testing.T) {
+	withArgs(t, "engram", "graph", "help")
+	stdout, stderr := captureOutput(t, func() { cmdGraph(testConfig(t)) })
+	combined := stdout + stderr
+	if !strings.Contains(combined, "Examples:") {
+		t.Fatalf("expected Examples section in graph help, got: %q", combined)
+	}
+	if !strings.Contains(combined, "mneme graph entities") {
+		t.Fatalf("expected examples to include 'mneme graph entities', got: %q", combined)
+	}
+}
+
 func TestCmdGraphRebuildIsIdempotent(t *testing.T) {
 	cfg := testConfig(t)
 

@@ -1391,7 +1391,6 @@ func TestIsNoiseConcept_RealConceptsPass(t *testing.T) {
 		"rate limiting", "deadlock", "SOLID", "DRY", "TDD",
 		"React", "Docker", "PostgreSQL", "SQLite", "Kubernetes",
 		"API", "JWT", "REST", "gRPC",
-		"UserService", "BaseService", "AuthService",
 	}
 	for _, c := range goodConcepts {
 		t.Run(c, func(t *testing.T) {
@@ -1667,5 +1666,262 @@ func TestNoiseConcept_GenericDefinitionPatterns(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ─── Round 2: User-Reported Generic Concepts ──────────────────────────────────
+
+func TestIsNoiseConcept_UserReportedRound2(t *testing.T) {
+	// Terms the user observed still appearing in the graph after cleanup-noise.
+	// Each is too vague to be a useful isolated concept.
+	genericTerms := []string{
+		"Formula", "formula", "FORMULA",
+		"placeholder", "Placeholder", "PLACEHOLDER",
+		"understanding", "Understanding", "UNDERSTANDING",
+		"nobody", "Nobody", "NOBODY",
+		"real", "Real", "REAL",
+		"engine", "Engine", "ENGINE",
+	}
+	for _, term := range genericTerms {
+		t.Run(term, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(term) {
+				t.Errorf("expected user-reported generic term %q to be noise", term)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_EnvIsNotNoise(t *testing.T) {
+	// "env" is a valid developer concept (environment variables).
+	// Must NOT be filtered — explicitly requested by the user.
+	if extractor.IsNoiseConcept("env") {
+		t.Error("'env' should NOT be noise — it's a valid dev concept (environment variables)")
+	}
+	if extractor.IsNoiseConcept("Env") {
+		t.Error("'Env' should NOT be noise — it's a valid dev concept (environment variables)")
+	}
+}
+
+func TestNoiseConcept_UserReportedRound2_Backtick(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Generic terms in backticks should NOT become concepts.
+	generic := []string{"formula", "placeholder", "understanding", "nobody", "real", "engine"}
+	for _, g := range generic {
+		text := fmt.Sprintf("Using `%s` in the pipeline", g)
+		t.Run(g, func(t *testing.T) {
+			result := ex.Extract(text)
+			for _, e := range result.Entities {
+				if e.EntityType == extractor.EntityTypeConcept && strings.EqualFold(e.Name, g) {
+					t.Errorf("generic term %q in backticks should not be a concept", g)
+				}
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_UserReportedRound2_Definition(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Generic terms via "X is a ..." pattern should NOT become concepts.
+	generic := []string{"Formula", "Placeholder", "Understanding", "Real", "Engine"}
+	for _, g := range generic {
+		text := fmt.Sprintf("%s is a critical component of the system", g)
+		t.Run(g, func(t *testing.T) {
+			result := ex.Extract(text)
+			for _, e := range result.Entities {
+				if e.EntityType == extractor.EntityTypeConcept && strings.EqualFold(e.Name, g) {
+					t.Errorf("generic term %q via definition pattern should not be a concept", g)
+				}
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_EnvBacktickStillExtracted(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "env" in backticks should STILL be extracted as a valid concept.
+	text := "Using `env` for configuration"
+	result := ex.Extract(text)
+
+	found := false
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypeConcept && e.Name == "env" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("'env' in backticks should still be extracted as concept, got: %v", entityNames(result.Entities))
+	}
+}
+
+func TestNoiseConcept_UserReportedRound2_SuffixPattern(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// "Engine pattern" → "Engine" should be filtered as noise concept via suffix pattern.
+	generic := []string{"Engine", "Formula", "Real"}
+	for _, g := range generic {
+		text := fmt.Sprintf("Applied the %s pattern for transactions", g)
+		t.Run(g, func(t *testing.T) {
+			result := ex.Extract(text)
+			for _, e := range result.Entities {
+				if e.EntityType == extractor.EntityTypeConcept && strings.EqualFold(e.Name, g) {
+					t.Errorf("generic term %q via suffix pattern should not be a concept", g)
+				}
+			}
+		})
+	}
+}
+
+// ─── Round 3: Code Identifier Filtering ────────────────────────────────────
+
+func TestIsNoiseConcept_CodeIdentifiers(t *testing.T) {
+	// camelCase/PascalCase identifiers from the real diagnostic — must be noise.
+	identifiers := []string{
+		"cmdGraphReindex", "RebuildCommunities", "visibleItems",
+		"UserService", "BaseService", "AuthService",
+		"getUserById", "fetchDataAsync", "handleHttpResponse",
+		"ConfigManager", "EventHandler",
+	}
+	for _, id := range identifiers {
+		t.Run(id, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(id) {
+				t.Errorf("expected code identifier %q to be noise", id)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_CodeIdentifiers_GazetteerEntitiesPass(t *testing.T) {
+	// Gazetteer entries that look like they could be code identifiers but are
+	// legitimate tools/languages — must NOT be filtered.
+	legit := []string{
+		// lowercase prefix + uppercase acronym — no lower→upper→lower triple
+		"gRPC", "eBPF",
+		// upper+lower+upper but second upper is NOT followed by lowercase
+		"GraphQL", "MongoDB", "OpenAI",
+		// product names with special patterns
+		"macOS",
+		// standard PascalCase tools (single-capital + all-lowercase rest)
+		"React", "Docker", "Kubernetes", "Prometheus",
+		// all-uppercase acronyms
+		"JWT", "API", "REST", "SQL", "SOLID", "CQRS", "TDD",
+		// single-capital + all-lowercase
+		"Go", "R", "Bash",
+	}
+	for _, name := range legit {
+		t.Run(name, func(t *testing.T) {
+			if extractor.IsNoiseConcept(name) {
+				t.Errorf("legitimate entity %q should NOT be noise", name)
+			}
+		})
+	}
+}
+
+func TestIsNoiseConcept_GenericTermsRound3(t *testing.T) {
+	// Explicitly diagnosed generic terms.
+	genericTerms := []string{
+		"implementation", "Implementation", "IMPLEMENTATION",
+		"double-quoted", "Double-quoted", "DOUBLE-QUOTED",
+	}
+	for _, term := range genericTerms {
+		t.Run(term, func(t *testing.T) {
+			if !extractor.IsNoiseConcept(term) {
+				t.Errorf("expected generic term %q to be noise", term)
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_CodeIdentifiers_Backtick(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Code identifiers in backticks should NOT become concepts.
+	identifiers := []string{"cmdGraphReindex", "visibleItems", "getUserById"}
+	for _, id := range identifiers {
+		text := fmt.Sprintf("Called `%s` in the pipeline", id)
+		t.Run(id, func(t *testing.T) {
+			result := ex.Extract(text)
+			for _, e := range result.Entities {
+				if e.EntityType == extractor.EntityTypeConcept && e.Name == id {
+					t.Errorf("code identifier %q in backticks should not be a concept", id)
+				}
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_CodeIdentifiers_Definition(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Code identifiers via "X is a ..." pattern should NOT become concepts.
+	identifiers := []string{"CmdGraphReindex", "RebuildCommunities", "VisibleItems"}
+	for _, id := range identifiers {
+		text := fmt.Sprintf("%s is a critical component of the system", id)
+		t.Run(id, func(t *testing.T) {
+			result := ex.Extract(text)
+			for _, e := range result.Entities {
+				if e.EntityType == extractor.EntityTypeConcept && e.Name == id {
+					t.Errorf("code identifier %q via definition pattern should not be a concept", id)
+				}
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_CodeIdentifiers_Suffix(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Code identifiers via "the X pattern" suffix should NOT become concepts.
+	identifiers := []string{"CmdGraphReindex", "VisibleItems", "EventHandler"}
+	for _, id := range identifiers {
+		text := fmt.Sprintf("Applied the %s pattern for transactions", id)
+		t.Run(id, func(t *testing.T) {
+			result := ex.Extract(text)
+			for _, e := range result.Entities {
+				if e.EntityType == extractor.EntityTypeConcept && e.Name == id {
+					t.Errorf("code identifier %q via suffix pattern should not be a concept", id)
+				}
+			}
+		})
+	}
+}
+
+func TestNoiseConcept_CodeIdentifiers_MultiWordNotFiltered(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	// Multi-word phrases with spaces are NOT code identifiers — they should
+	// still be extracted if they're valid concepts.
+	text := "Using `event sourcing` for state management"
+	result := ex.Extract(text)
+	if !hasEntity(result.Entities, "event sourcing", extractor.EntityTypeConcept) {
+		t.Errorf("multi-word concept 'event sourcing' should still be extracted, got: %v",
+			entityNames(result.Entities))
+	}
+}
+
+func TestNoiseConcept_Implementation_Backtick(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	text := "Using `implementation` in the pipeline"
+	result := ex.Extract(text)
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypeConcept && e.Name == "implementation" {
+			t.Error("'implementation' in backticks should not be a concept")
+		}
+	}
+}
+
+func TestNoiseConcept_Implementation_Definition(t *testing.T) {
+	ex := extractor.NewRuleExtractor()
+
+	text := "Implementation is a critical phase of the project"
+	result := ex.Extract(text)
+	for _, e := range result.Entities {
+		if e.EntityType == extractor.EntityTypeConcept && strings.EqualFold(e.Name, "implementation") {
+			t.Error("'Implementation' via definition pattern should not be a concept")
+		}
 	}
 }

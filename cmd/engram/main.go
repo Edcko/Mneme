@@ -1336,27 +1336,34 @@ func cmdGraph(cfg store.Config) {
 
 const graphUsage = `Usage:
   mneme graph entities [--type TYPE] [--project PROJECT] [--limit N]
-                      List entities in the knowledge graph
+                        List entities in the knowledge graph
   mneme graph entity <id>
-                      Show entity detail and its active relations
+                        Show entity detail and its active relations
   mneme graph search <query> [--type TYPE] [--project PROJECT] [--limit N]
-                      Search entities by name/summary (FTS5)
+                        Search entities by name/summary (FTS5)
   mneme graph traverse <id> [--depth N] [--project PROJECT]
-                      BFS graph traversal from an entity
+                        BFS graph traversal from an entity
   mneme graph communities [--project PROJECT] [--limit N]
-                      List communities (clusters of connected entities)
+                        List communities (clusters of connected entities)
   mneme graph reindex [--project PROJECT]
-                      Reindex all observations to extract entities and relations
-   mneme graph rebuild [--project PROJECT]
-                       Rebuild communities from current entities and relations
-   mneme graph cleanup-noise [--project PROJECT]
-                       Remove noise concepts (stopwords, punctuation, etc.) and their relations
+                        Reindex all observations to extract entities and relations
+  mneme graph rebuild [--project PROJECT]
+                        Rebuild communities from current entities and relations
+  mneme graph cleanup-noise [--project PROJECT]
+                        Remove noise concepts (stopwords, punctuation, etc.) and their relations
 
 Options:
   --type TYPE       Filter by entity type (person, project, file, tool, concept, language)
   --project PROJECT Filter by project
   --limit N         Max results (default: 20)
   --depth N         Max BFS depth (default: 3, max: 10)
+
+Examples:
+  mneme graph entities                       List all entities, sorted by type
+  mneme graph entities --type person         Show only person entities
+  mneme graph search "auth"                  Find entities matching "auth"
+  mneme graph traverse 42 --depth 2          Explore connections from entity #42
+  mneme graph communities --project myapp    Show communities for a project
 `
 
 func cmdGraphEntities(cfg store.Config) {
@@ -1398,21 +1405,52 @@ func cmdGraphEntities(cfg store.Config) {
 	}
 
 	if len(entities) == 0 {
-		fmt.Println("No entities found.")
+		if entityType != "" || project != "" {
+			fmt.Println("No entities found for the given filters.")
+		} else {
+			fmt.Println("No entities found. Run 'mneme graph reindex' to extract entities from observations.")
+		}
 		return
 	}
 
-	fmt.Printf("Entities (%d):\n", len(entities))
-	for _, e := range entities {
-		proj := ""
-		if e.Project != nil {
-			proj = fmt.Sprintf(" | %s", *e.Project)
+	// Sort by type, then by name for easier scanning.
+	sort.Slice(entities, func(i, j int) bool {
+		if entities[i].EntityType != entities[j].EntityType {
+			return entities[i].EntityType < entities[j].EntityType
 		}
+		return entities[i].Name < entities[j].Name
+	})
+
+	// Count by type for summary.
+	typeCounts := make(map[string]int)
+	for _, e := range entities {
+		typeCounts[string(e.EntityType)]++
+	}
+
+	fmt.Printf("Entities (%d):\n", len(entities))
+	fmt.Printf("  %-6s %-12s %-30s %s\n", "ID", "TYPE", "NAME", "SUMMARY")
+	for _, e := range entities {
 		summary := ""
 		if e.Summary != nil {
-			summary = fmt.Sprintf(" — %s", truncate(*e.Summary, 60))
+			summary = truncate(*e.Summary, 50)
 		}
-		fmt.Printf("  #%d %-12s %-30s%s%s\n", e.ID, e.EntityType, e.Name, summary, proj)
+		proj := ""
+		if e.Project != nil {
+			proj = fmt.Sprintf(" [%s]", *e.Project)
+		}
+		fmt.Printf("  #%-5d %-12s %-30s %s%s\n", e.ID, e.EntityType, e.Name, summary, proj)
+	}
+
+	// Type distribution summary.
+	if len(typeCounts) > 1 {
+		fmt.Printf("\n  By type: ")
+		var parts []string
+		for _, t := range []string{"person", "project", "file", "tool", "concept", "language"} {
+			if c, ok := typeCounts[t]; ok {
+				parts = append(parts, fmt.Sprintf("%d %s", c, t))
+			}
+		}
+		fmt.Println(strings.Join(parts, " · "))
 	}
 }
 
@@ -1536,17 +1574,26 @@ func cmdGraphSearch(cfg store.Config) {
 		return
 	}
 
-	fmt.Printf("Found %d entities:\n", len(entities))
-	for _, e := range entities {
-		proj := ""
-		if e.Project != nil {
-			proj = fmt.Sprintf(" | %s", *e.Project)
+	// Sort by type, then by name for easier scanning.
+	sort.Slice(entities, func(i, j int) bool {
+		if entities[i].EntityType != entities[j].EntityType {
+			return entities[i].EntityType < entities[j].EntityType
 		}
+		return entities[i].Name < entities[j].Name
+	})
+
+	fmt.Printf("Found %d entities:\n", len(entities))
+	fmt.Printf("  %-6s %-12s %-30s %s\n", "ID", "TYPE", "NAME", "SUMMARY")
+	for _, e := range entities {
 		summary := ""
 		if e.Summary != nil {
-			summary = fmt.Sprintf(" — %s", truncate(*e.Summary, 60))
+			summary = truncate(*e.Summary, 50)
 		}
-		fmt.Printf("  #%d %-12s %-30s%s%s\n", e.ID, e.EntityType, e.Name, summary, proj)
+		proj := ""
+		if e.Project != nil {
+			proj = fmt.Sprintf(" [%s]", *e.Project)
+		}
+		fmt.Printf("  #%-5d %-12s %-30s %s%s\n", e.ID, e.EntityType, e.Name, summary, proj)
 	}
 }
 
@@ -1605,13 +1652,25 @@ func cmdGraphTraverse(cfg store.Config) {
 		return
 	}
 
+	// Sort nodes: depth ascending, then type, then name.
+	sort.Slice(result.Nodes, func(i, j int) bool {
+		if result.Nodes[i].Depth != result.Nodes[j].Depth {
+			return result.Nodes[i].Depth < result.Nodes[j].Depth
+		}
+		if result.Nodes[i].EntityType != result.Nodes[j].EntityType {
+			return result.Nodes[i].EntityType < result.Nodes[j].EntityType
+		}
+		return result.Nodes[i].Name < result.Nodes[j].Name
+	})
+
 	fmt.Printf("Connected entities (%d):\n", len(result.Nodes))
+	fmt.Printf("  %-6s %-12s %-30s %s\n", "DEPTH", "TYPE", "NAME", "PROJECT")
 	for _, n := range result.Nodes {
 		proj := ""
 		if n.Project != nil {
-			proj = fmt.Sprintf(" | %s", *n.Project)
+			proj = *n.Project
 		}
-		fmt.Printf("  depth %d: #%d %-12s %-30s%s\n", n.Depth, n.ID, n.EntityType, n.Name, proj)
+		fmt.Printf("  %-6d %-12s %-30s %s\n", n.Depth, n.EntityType, n.Name, proj)
 	}
 
 	// Relations
@@ -1664,6 +1723,11 @@ func cmdGraphCommunities(cfg store.Config) {
 		return
 	}
 
+	// Sort communities by member count descending (biggest = most useful first).
+	sort.Slice(communities, func(i, j int) bool {
+		return len(communities[i].Members) > len(communities[j].Members)
+	})
+
 	fmt.Printf("Communities (%d):\n", len(communities))
 	for _, c := range communities {
 		proj := ""
@@ -1674,9 +1738,20 @@ func cmdGraphCommunities(cfg store.Config) {
 		if c.Summary != nil {
 			summary = fmt.Sprintf(": %s", *c.Summary)
 		}
-		fmt.Printf("\n  Community #%d%s%s (%d members)\n", c.ID, proj, summary, len(c.Members))
+		memberWord := "member"
+		if len(c.Members) != 1 {
+			memberWord = "members"
+		}
+		fmt.Printf("\n  Community #%d%s%s (%d %s)\n", c.ID, proj, summary, len(c.Members), memberWord)
+		// Sort members by type then name for consistency.
+		sort.Slice(c.Members, func(i, j int) bool {
+			if c.Members[i].EntityType != c.Members[j].EntityType {
+				return c.Members[i].EntityType < c.Members[j].EntityType
+			}
+			return c.Members[i].Name < c.Members[j].Name
+		})
 		for _, m := range c.Members {
-			fmt.Printf("    - #%d %-12s %s\n", m.ID, m.EntityType, m.Name)
+			fmt.Printf("    - #%-5d %-12s %s\n", m.ID, m.EntityType, m.Name)
 		}
 	}
 }

@@ -179,7 +179,43 @@ var conceptStopWords = map[string]bool{
 	"set": true, "get": true, "run": true, "add": true, "put": true,
 	"new": true, "old": true,
 	"first": true, "next": true, "last": true,
+	// Round 2 — user-reported generic concepts still leaking after cleanup-noise.
+	// Each is too vague to carry domain meaning as an isolated token.
+	// Kept out: "env" (environment variable — valid dev concept).
+	"formula": true, "placeholder": true, "understanding": true,
+	"nobody": true, "real": true, "engine": true,
+	// Round 3 — technical generic terms and code-adjacent descriptors.
+	"implementation": true, "double-quoted": true,
 }
+
+// isCodeIdentifier detects camelCase or PascalCase code identifiers that
+// should not be extracted as domain concepts.
+//
+// A word is classified as a code identifier when it contains at least one
+// lowercase→uppercase→lowercase transition (a three-character window where
+// positions i, i+1, i+2 are lower, upper, lower respectively).
+//
+// This catches identifiers like "cmdGraphReindex", "visibleItems",
+// "RebuildCommunities", "UserService" while preserving legitimate entities
+// like "gRPC" (lower→upper→upper — no match), "GraphQL", "MongoDB", "macOS".
+//
+// Multi-word phrases (containing spaces or hyphens) are excluded —
+// they're handled by other filters.
+func isCodeIdentifier(name string) bool {
+	if strings.ContainsAny(name, " \t-") {
+		return false
+	}
+	runes := []rune(name)
+	for i := 0; i < len(runes)-2; i++ {
+		if isLowerRune(runes[i]) && isUpperRune(runes[i+1]) && isLowerRune(runes[i+2]) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLowerRune(r rune) bool { return r >= 'a' && r <= 'z' }
+func isUpperRune(r rune) bool { return r >= 'A' && r <= 'Z' }
 
 // IsNoiseConcept reports whether name is too generic or low-value to be
 // stored as a concept entity. Used by the extractor AND by MCP backfill
@@ -228,6 +264,14 @@ func IsNoiseConcept(name string) bool {
 
 	// Exact stopword match.
 	if conceptStopWords[lower] {
+		return true
+	}
+
+	// Code identifiers: camelCase/PascalCase with lowercase→upper→lower transitions.
+	// These are code artifacts (function/variable/class names), not domain concepts.
+	// Gazetteer entries (GraphQL, OpenAI, MongoDB, etc.) are extracted as
+	// tools/languages before reaching this check — they're never affected.
+	if isCodeIdentifier(name) {
 		return true
 	}
 

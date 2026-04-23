@@ -481,6 +481,38 @@ func TestViewGraphEntityList(t *testing.T) {
 		}
 	})
 
+	t.Run("entities sorted by type then name", func(t *testing.T) {
+		m.GraphEntities = []store.Entity{
+			{ID: 1, Name: "React", EntityType: store.EntityTypeTool, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+			{ID: 2, Name: "Alice", EntityType: store.EntityTypePerson, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+			{ID: 3, Name: "Go", EntityType: store.EntityTypeLanguage, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+			{ID: 4, Name: "TypeScript", EntityType: store.EntityTypeLanguage, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+			{ID: 5, Name: "Angular", EntityType: store.EntityTypeTool, CreatedAt: "2026-01-01", UpdatedAt: "2026-01-01"},
+		}
+		m.GraphSearchQuery = ""
+		out := m.viewGraph()
+
+		// Order should be: language (Go, TypeScript), person (Alice), tool (Angular, React).
+		goIdx := strings.Index(out, "Go")
+		tsIdx := strings.Index(out, "TypeScript")
+		aliceIdx := strings.Index(out, "Alice")
+		angularIdx := strings.Index(out, "Angular")
+		reactIdx := strings.Index(out, "React")
+
+		if goIdx >= tsIdx {
+			t.Fatal("Go should appear before TypeScript (same type, alphabetical)")
+		}
+		if tsIdx >= aliceIdx {
+			t.Fatal("TypeScript (language) should appear before Alice (person)")
+		}
+		if aliceIdx >= angularIdx {
+			t.Fatal("Alice (person) should appear before Angular (tool)")
+		}
+		if angularIdx >= reactIdx {
+			t.Fatal("Angular should appear before React (same type, alphabetical)")
+		}
+	})
+
 	t.Run("search header", func(t *testing.T) {
 		m.GraphSearchQuery = "react"
 		m.GraphEntities = []store.Entity{

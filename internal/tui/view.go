@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -689,7 +690,17 @@ func (m Model) viewSetup() string {
 func (m Model) viewGraph() string {
 	var b strings.Builder
 
-	count := len(m.GraphEntities)
+	// Sort entities by type then name for cleaner presentation.
+	sorted := make([]store.Entity, len(m.GraphEntities))
+	copy(sorted, m.GraphEntities)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].EntityType != sorted[j].EntityType {
+			return sorted[i].EntityType < sorted[j].EntityType
+		}
+		return sorted[i].Name < sorted[j].Name
+	})
+
+	count := len(sorted)
 	header := "  Knowledge Graph"
 	if m.GraphSearchQuery != "" {
 		header = fmt.Sprintf("  Graph Search: %q — %d result", m.GraphSearchQuery, count)
@@ -724,7 +735,7 @@ func (m Model) viewGraph() string {
 	}
 
 	for i := m.Scroll; i < end; i++ {
-		e := m.GraphEntities[i]
+		e := sorted[i]
 		b.WriteString(m.renderEntityListItem(i, e))
 	}
 
